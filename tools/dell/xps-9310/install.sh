@@ -410,11 +410,9 @@ EOF
 
 _log "Enable services..."
 
-arch-chroot /mnt systemctl enable acpid
 arch-chroot /mnt systemctl enable bluetooth
 arch-chroot /mnt systemctl enable firewalld
 arch-chroot /mnt systemctl enable fstrim.timer
-
 arch-chroot /mnt systemctl enable systemd-networkd
 arch-chroot /mnt systemctl enable systemd-resolved
 
