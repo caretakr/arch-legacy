@@ -285,7 +285,7 @@ EOF
 _log "Setting console..."
 
 cat <<EOF > /mnt/etc/vconsole.conf
-KEYMAP=br-abnt2
+KEYMAP=us
 EOF
 
 _log "Setting hosts..."
