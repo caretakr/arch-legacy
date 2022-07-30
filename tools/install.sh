@@ -17,21 +17,22 @@ _log() {
 _main() {
     _log "Please provide the following:"
 
-    printf "▶ Storage device? "; read _STORAGE_DEVICE
+    printf "▶ Storage device: "; read _STORAGE_DEVICE
 
-    if [ ! -b "/dev/$_STORAGE_DEVICE" ]; then
+    if [ ! -b /dev/$_STORAGE_DEVICE ]; then
         _log "Storage device not found: exiting..."; exit
     fi
 
-    printf "▶ Data password? "; read -s _DATA_PASSWORD && printf "\n"
-    printf "▶ Data password confirmation? "; read -s _DATA_PASSWORD_CONFIRMATION && printf "\n"
+    printf "▶ Data password: "; read -s _DATA_PASSWORD && printf "\n"
+    printf "▶ Data password confirmation: "; read -s _DATA_PASSWORD_CONFIRMATION && printf "\n"
 
     if [ "$_DATA_PASSWORD" != "$_DATA_PASSWORD_CONFIRMATION" ]; then
         _log "Data password mismatch: exiting..."; exit
     fi
 
-    printf "▶ User password? "; read -s _USER_PASSWORD && printf "\n"
-    printf "▶ User password confirmation? "; read -s _USER_PASSWORD_CONFIRMATION && printf "\n"
+    printf "▶ User name: "; read -s _USER_NAME && printf "\n"
+    printf "▶ User password: "; read -s _USER_PASSWORD && printf "\n"
+    printf "▶ User password confirmation: "; read -s _USER_PASSWORD_CONFIRMATION && printf "\n"
 
     if [ "$_USER_PASSWORD" != "$_USER_PASSWORD_CONFIRMATION" ]; then
         _log "User password mismatch: exiting..."; exit
@@ -41,8 +42,8 @@ _main() {
     _SWAP_PARTITION="${_STORAGE_DEVICE}2"
     _DATA_PARTITION="${_STORAGE_DEVICE}3"
 
-    _SWAP_SIZE=$(($(awk '( $1 == "MemTotal:" ) { printf "%3.0f", ($2/1024)*1.5 }' /proc/meminfo)*2048))
-    _DATA_START=$(($_SWAP_SIZE+2099200))
+    _SWAP_SIZE="$(($(awk '( $1 == "MemTotal:" ) { printf "%3.0f", ($2/1024)*1.5 }' /proc/meminfo)*2048))"
+    _DATA_START="$(($_SWAP_SIZE+2099200))"
 
     _log "Updating system clock..."
 
@@ -62,10 +63,10 @@ _main() {
         umount /mnt/root
     fi
 
-    if cat /proc/mounts | grep /mnt/home/caretakr >/dev/null; then
+    if cat /proc/mounts | grep /mnt/home/$_USER_NAME >/dev/null; then
         _log "Unmounting user home partition..."
 
-        umount /mnt/home/caretakr
+        umount /mnt/home/$_USER_NAME
     fi
 
     if cat /proc/mounts | grep /mnt/var/log >/dev/null; then
@@ -143,8 +144,8 @@ EOF
 
     _log "Creating subvolume for user home..."
 
-    mkdir -p /mnt/home/caretakr+SNAPSHOTS
-    btrfs subvolume create /mnt/home/caretakr+LIVE
+    mkdir -p /mnt/home/$_USER_NAME+SNAPSHOTS
+    btrfs subvolume create /mnt/home/$_USER_NAME+LIVE
 
     _log "Creating subvolume for logs..."
 
@@ -167,7 +168,7 @@ EOF
 
     _log "Creating mount points..."
 
-    mkdir -p /mnt/{boot,root,home/caretakr,var/lib/libvirt/images,var/log}
+    mkdir -p /mnt/{boot,root,home/$_USER_NAME,var/lib/libvirt/images,var/log}
 
     _log "Mounting boot partition..."
 
@@ -180,8 +181,8 @@ EOF
 
     _log "Mounting user home subvolume..."
 
-    mount -o noatime,compress=zstd,subvol=home/caretakr+LIVE \
-        /dev/mapper/$_DATA_PARTITION /mnt/home/caretakr
+    mount -o noatime,compress=zstd,subvol=home/$_USER_NAME+LIVE \
+        /dev/mapper/$_DATA_PARTITION /mnt/home/$_USER_NAME
 
     _log "Mounting logs subvolume..."
 
@@ -196,21 +197,27 @@ EOF
     _log "Bootstrapping..."
 
     _PACKAGES=" \
+        adwaita-qt5 \
+        adwaita-qt6 \
         alsa-utils \
         alsa-plugins \
         base \
         base-devel \
         bluez \
         bluez-utils \
+        bridge-utils \
         brightnessctl \
         bspwm \
         btop \
         btrfs-progs \
+        dmidecode \
+        dnsmasq \
         dosfstools \
         dunst \
         efibootmgr \
         feh \
         firewalld \
+        flatpak \
         git \
         gnome-keyring \
         gnupg \
@@ -222,10 +229,15 @@ EOF
         gst-plugins-base \
         gst-plugins-good \
         gst-plugins-ugly \
+        gtk3 \
+        gtk4 \
         intel-ucode \
+        iptables-nft \
+        iwd \
         kitty \
         libsecret \
         libvdpau-va-gl \
+        libvirt \
         linux \
         linux-firmware \
         linux-headers \
@@ -235,7 +247,9 @@ EOF
         noto-fonts \
         noto-fonts-cjk \
         noto-fonts-emoji \
+        openbsd-netcat \
         openssh \
+        openvpn \
         picom \
         pinentry \
         pipewire \
@@ -243,17 +257,25 @@ EOF
         pipewire-jack \
         pipewire-pulse \
         playerctl \
+        podman \
         polkit \
         polybar \
         rofi \
         rsync \
         rust \
         seahorse \
+        slock \
         sof-firmware \
         sudo \
+        systemd-resolvconf \
         sxhkd \
+        qemu-full \
+        qt5-base \
+        qt6-base \
         vim \
+        virt-manager \
         vulkan-intel \
+        wireguard-tools \
         wireplumber \
         xdg-user-dirs \
         xorg-server \
@@ -261,6 +283,7 @@ EOF
         xorg-xinput \
         xorg-xrandr \
         xorg-xset \
+        xss-lock \
         zsh
     "
 
@@ -282,6 +305,7 @@ EOF
     then
         _PACKAGES=" \
             $_PACKAGES \
+            broadcom-wl \
             libva-intel-driver \
         "
     fi
@@ -316,18 +340,18 @@ EOF
         [ "$(dmidecode -s system-manufacturer)" = "Dell Inc." ] \
             && [ "$(dmidecode -s system-product-name)" = "XPS 13 9310" \
     ]; then
-        _LANG="br-abnt2"
+        _KEYMAP="br-abnt2"
     fi
 
     if \
         [ "$(dmidecode -s system-manufacturer)" = "Apple Inc." ] \
             && [ "$(dmidecode -s system-product-name)" = "MacBookPro9,2" \
     ]; then
-        _LANG="us"
+        _KEYMAP="us"
     fi
 
     cat <<EOF > /mnt/etc/vconsole.conf
-KEYMAP=$_LANG
+KEYMAP=$_KEYMAP
 EOF
 
     _log "Setting hosts..."
@@ -344,7 +368,7 @@ EOF
 
     _log "Setting network..."
 
-    cat <<EOF > /mnt/etc/systemd/network/20-ethernet.network
+    cat <<EOF > /mnt/etc/systemd/system/network/20-ethernet.network
 [Match]
 Name=en*
 
@@ -358,7 +382,7 @@ RouteMetric=10
 RouteMetric=10
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/network/25-wireless.network
+    cat <<EOF > /mnt/etc/systemd/system/network/25-wireless.network
 [Match]
 Name=wl*
 
@@ -374,13 +398,13 @@ EOF
 
     _log "Setting user..."
 
-    arch-chroot /mnt useradd -G wheel -m -s /bin/zsh caretakr
-    arch-chroot /mnt chown caretakr:caretakr /home/caretakr
-    arch-chroot /mnt chmod 0700 /home/caretakr
+    arch-chroot /mnt useradd -G wheel -m -s /bin/zsh $_USER_NAME
+    arch-chroot /mnt chown $_USER_NAME:$_USER_NAME /home/$_USER_NAME
+    arch-chroot /mnt chmod 0700 /home/$_USER_NAME
 
     _log "Setting passwords..."
 
-    echo "caretakr:$_USER_PASSWORD" | arch-chroot /mnt chpasswd
+    echo "$_USER_NAME:$_USER_PASSWORD" | arch-chroot /mnt chpasswd
 
     _log "Setting sudoers..."
 
@@ -394,20 +418,20 @@ EOF
 
     _log "Setting home"...
 
-    arch-chroot /mnt sudo -u caretakr sh -c \
-        "(git clone https://github.com/caretakr/home.git /home/caretakr && cd /home/caretakr && git checkout config && git submodule init && git submodule update)"        
+    arch-chroot /mnt sudo -u $_USER_NAME sh -c \
+        "(git clone https://github.com/$_USER_NAME/home.git /home/$_USER_NAME && cd /home/$_USER_NAME && git submodule init && git submodule update)"
 
     _log "Setting Paru..."
 
-    arch-chroot /mnt sudo -u caretakr git clone \
+    arch-chroot /mnt sudo -u $_USER_NAME git clone \
         https://aur.archlinux.org/paru.git /var/tmp/paru
 
-    arch-chroot /mnt sudo -u caretakr sh -c \
+    arch-chroot /mnt sudo -u $_USER_NAME sh -c \
         "(cd /var/tmp/paru && makepkg -si --noconfirm && cd / && rm -rf /var/tmp/paru)"
 
     _log "Setting AUR packages..."
 
-    arch-chroot /mnt sudo -u caretakr paru -S --noconfirm \
+    arch-chroot /mnt sudo -u $_USER_NAME paru -S --noconfirm \
         plymouth \
         xbanish
 
@@ -444,8 +468,8 @@ EOF
 
     arch-chroot /mnt touch /root/.hushlogin
 
-    arch-chroot /mnt touch /home/caretakr/.hushlogin
-    arch-chroot /mnt chown caretakr:caretakr /home/caretakr/.hushlogin
+    arch-chroot /mnt touch /home/$_USER_NAME/.hushlogin
+    arch-chroot /mnt chown $_USER_NAME:$_USER_NAME /home/$_USER_NAME/.hushlogin
 
     arch-chroot /mnt setterm -cursor on >> /etc/issue
 
@@ -453,13 +477,23 @@ EOF
 kernel.printk = 3 3 3 3
 EOF
 
-    _log "Enable services..."
+    mkdir -p /mnt/etc/systemd/system/getty@tty1.service.d
 
-    arch-chroot /mnt systemctl enable bluetooth
-    arch-chroot /mnt systemctl enable firewalld
+    cat <<EOF > /mnt/etc/systemd/system/getty@tty1.service.d/login.conf
+[Service]
+ExecStart=
+ExecStart=-/usr/bin/agetty --skip-login --nonewline --noissue --autologin $_USER_NAME --noclear %I \$TERM
+EOF
+
+    _log "Enable services and timers..."
+
+    arch-chroot /mnt systemctl enable bluetooth.service
+    arch-chroot /mnt systemctl enable firewalld.service
     arch-chroot /mnt systemctl enable fstrim.timer
-    arch-chroot /mnt systemctl enable systemd-networkd
-    arch-chroot /mnt systemctl enable systemd-resolved
+    arch-chroot /mnt systemctl enable iwd.service
+    arch-chroot /mnt systemctl enable libvirtd.service
+    arch-chroot /mnt systemctl enable systemd-networkd.service
+    arch-chroot /mnt systemctl enable systemd-resolved.service
 
     _log "Cleanup..."
 
