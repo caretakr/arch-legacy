@@ -367,6 +367,8 @@ EOF
 
     _log "Setting network..."
 
+    mkdir -p /mnt/etc/systemd/system/network/
+
     cat <<EOF > /mnt/etc/systemd/system/network/20-ethernet.network
 [Match]
 Name=en*
