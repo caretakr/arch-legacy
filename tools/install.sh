@@ -30,7 +30,7 @@ _main() {
         _log "Data password mismatch: exiting..."; exit
     fi
 
-    printf "▶ User name: "; read -s _USER_NAME && printf "\n"
+    printf "▶ User name: "; read _USER_NAME && printf "\n"
     printf "▶ User password: "; read -s _USER_PASSWORD && printf "\n"
     printf "▶ User password confirmation: "; read -s _USER_PASSWORD_CONFIRMATION && printf "\n"
 
