@@ -277,7 +277,6 @@ EOF
         vulkan-intel \
         wireguard-tools \
         wireplumber \
-        xdg-user-dirs \
         xorg-server \
         xorg-xinit \
         xorg-xinput \
