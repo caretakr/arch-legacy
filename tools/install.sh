@@ -433,7 +433,7 @@ EOF
     _log "Setting AUR packages..."
 
     arch-chroot /mnt sudo -u $_USER_NAME paru -S --noconfirm \
-        plymouth-git \
+        plymouth \
         xbanish
 
     _log "Setting ramdisk..."
