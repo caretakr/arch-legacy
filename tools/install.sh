@@ -366,9 +366,9 @@ EOF
 
     _log "Setting network..."
 
-    mkdir -p /mnt/etc/systemd/system/network/
+    mkdir -p /mnt/etc/systemd/network
 
-    cat <<EOF > /mnt/etc/systemd/system/network/20-ethernet.network
+    cat <<EOF > /mnt/etc/systemd/network/20-ethernet.network
 [Match]
 Name=en*
 
@@ -382,7 +382,7 @@ RouteMetric=10
 RouteMetric=10
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/network/25-wireless.network
+    cat <<EOF > /mnt/etc/systemd/network/25-wireless.network
 [Match]
 Name=wl*
 
