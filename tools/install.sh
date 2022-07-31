@@ -262,7 +262,6 @@ EOF
         polybar \
         rofi \
         rsync \
-        rust \
         seahorse \
         slock \
         sof-firmware \
