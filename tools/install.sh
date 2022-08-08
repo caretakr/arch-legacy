@@ -107,6 +107,10 @@ sector-size: 512
 /dev/$_DATA_PARTITION: start=$_DATA_START, size=, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
 EOF
 
+    _log "Waiting for disks syncing..."
+
+    sleep 5
+
     _log "Encrypting data partition..."
 
     printf $_DATA_PASSWORD | cryptsetup luksFormat /dev/$_DATA_PARTITION -d -
