@@ -211,7 +211,6 @@ EOF
         alsa-plugins \
         base \
         base-devel \
-        bitwarden \
         bluez \
         bluez-utils \
         bridge-utils \
@@ -284,7 +283,6 @@ EOF
         sudo \
         systemd-resolvconf \
         sxhkd \
-        veracrypt \
         vim \
         virt-manager \
         vulkan-intel \
@@ -607,23 +605,40 @@ _main() {
 
     mount -o noatime,compress=zstd "\$_DEVICE" "\$_WORKING_DIRECTORY"
 
-    btrfs subvolume snapshot -r "\$_FILESYSTEM" \\
-        "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$(date --utc +%Y%m%dT%H%M%SZ)+\$_TAG"
-
-    sudo -u $_USER_NAME \\
-        DISPLAY=:1 \\
-        DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
-        notify-send "Snapshot created" \\
-        "A snapshot of \$_FILESYSTEM BTRFS subvolume was created"
+    if \
+        btrfs subvolume snapshot -r "\$_FILESYSTEM" \\
+            "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$(date --utc +%Y%m%dT%H%M%SZ)+\$_TAG"
+    then
+        sudo -u $_USER_NAME \\
+            DISPLAY=:1 \\
+            DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
+            notify-send -u normal "Snapshot created" \\
+            "A snapshot of \$_FILESYSTEM BTRFS subvolume was created"
+    else
+        sudo -u $_USER_NAME \\
+            DISPLAY=:1 \\
+            DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
+            notify-send -u critical "Snapshot failed" \\
+            "A snapshot of \$_FILESYSTEM BTRFS subvolume was failed"
+    fi
 
     _COUNT=1
 
     for s in \$(find \$_WORKING_DIRECTORY/\$_LOCATION+snapshots/*+\$_TAG -maxdepth 0 -type d -printf "%f\n" | sort -nr); do
         if [ "\$_COUNT" -gt "\$_RETENTION" ]; then
-            btrfs subvolume delete "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$s"
-	    fi
+            if
+                btrfs subvolume delete \\
+                    "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$s"
+            then
+                sudo -u $_USER_NAME \\
+                    DISPLAY=:1 \\
+                    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
+                    notify-send -u critical "Cannot delete snapshot" \\
+                    "A snapshot of \$_FILESYSTEM BTRFS subvolume cannot be deleted"
+            fi
+        fi
 
-	    _COUNT=\$((\$_COUNT+1))
+        _COUNT=\$((\$_COUNT+1))
     done
 
     umount "\$_WORKING_DIRECTORY"
