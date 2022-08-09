@@ -211,6 +211,7 @@ EOF
         alsa-plugins \
         base \
         base-devel \
+        bitwarden \
         bluez \
         bluez-utils \
         bridge-utils \
@@ -271,6 +272,9 @@ EOF
         podman \
         polkit \
         polybar \
+        qemu-full \
+        qt5-base \
+        qt6-base \
         rofi \
         rsync \
         seahorse \
@@ -280,9 +284,7 @@ EOF
         sudo \
         systemd-resolvconf \
         sxhkd \
-        qemu-full \
-        qt5-base \
-        qt6-base \
+        veracrypt \
         vim \
         virt-manager \
         vulkan-intel \
@@ -638,7 +640,7 @@ Description=Snapshot of base BTRFS subvolume
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/root -f / -l base -p %i
+ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/$_DATA_PARTITION -f / -l base -p %i
 
 [Install]
 Also=btrfs-snapshot-base-%i.timer
@@ -650,7 +652,7 @@ Description=Snapshot of root BTRFS subvolume
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/root -f /root -l root -p %i
+ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/$_DATA_PARTITION -f /root -l root -p %i
 
 [Install]
 Also=btrfs-snapshot-root-%i.timer
@@ -662,7 +664,7 @@ Description=Snapshot of home/caretakr BTRFS subvolume
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/root -f /home/caretakr -l home/caretakr -p %i
+ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/$_DATA_PARTITION -f /home/caretakr -l home/caretakr -p %i
 
 [Install]
 Also=btrfs-snapshot-home-caretakr-%i.timer
@@ -674,7 +676,7 @@ Description=Snapshot of var/log BTRFS subvolume
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/root -f /var/log -l var/log -p %i
+ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/$_DATA_PARTITION -f /var/log -l var/log -p %i
 
 [Install]
 Also=btrfs-snapshot-var-log-%i.timer
@@ -686,7 +688,7 @@ Description=Snapshot of var/lib/libvirt/images BTRFS subvolume
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/root -f /var/lib/libvirt/images -l var/lib/libvirt/images -p %i
+ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/$_DATA_PARTITION -f /var/lib/libvirt/images -l var/lib/libvirt/images -p %i
 
 [Install]
 Also=btrfs-snapshot-var-lib-libvirt-images-%i.timer
