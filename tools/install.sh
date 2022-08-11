@@ -38,9 +38,15 @@ _main() {
         _log "User password mismatch: exiting..."; exit
     fi
 
-    _BOOT_PARTITION="${_STORAGE_DEVICE}1"
-    _SWAP_PARTITION="${_STORAGE_DEVICE}2"
-    _DATA_PARTITION="${_STORAGE_DEVICE}3"
+    if [[ "$_STORAGE_DEVICE" = nvme* ]]; then
+        _BOOT_PARTITION="${_STORAGE_DEVICE}p1"
+        _SWAP_PARTITION="${_STORAGE_DEVICE}p2"
+        _DATA_PARTITION="${_STORAGE_DEVICE}p3"
+    else
+        _BOOT_PARTITION="${_STORAGE_DEVICE}1"
+        _SWAP_PARTITION="${_STORAGE_DEVICE}2"
+        _DATA_PARTITION="${_STORAGE_DEVICE}3"
+    fi
 
     _SWAP_SIZE="$(($(awk '( $1 == "MemTotal:" ) { printf "%3.0f", ($2/1024)*1.5 }' /proc/meminfo)*2048))"
     _DATA_START="$(($_SWAP_SIZE+2099200))"
