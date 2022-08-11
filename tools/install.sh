@@ -222,6 +222,7 @@ EOF
         dnsmasq \
         dosfstools \
         dunst \
+        edk2-ovmf \
         efibootmgr \
         feh \
         firewalld \
@@ -281,8 +282,9 @@ EOF
         slock \
         sof-firmware \
         sudo \
-        systemd-resolvconf \
+        swtpm \
         sxhkd \
+        systemd-resolvconf \
         vim \
         virt-manager \
         vulkan-intel \
@@ -534,6 +536,10 @@ NTP=0.arch.pool.ntp.org 1.arch.pool.ntp.org 2.arch.pool.ntp.org 3.arch.pool.ntp.
 FallbackNTP=0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org 3.pool.ntp.org
 EOF
 
+    _log "Setting DNS..."
+
+    ln -sf /run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
+
     _log "Setting backup..."
 
     cat <<EOF > /mnt/usr/local/bin/btrfs-snapshot
@@ -627,7 +633,7 @@ _main() {
     for s in \$(find \$_WORKING_DIRECTORY/\$_LOCATION+snapshots/*+\$_TAG -maxdepth 0 -type d -printf "%f\n" | sort -nr); do
         if [ "\$_COUNT" -gt "\$_RETENTION" ]; then
             if
-                btrfs subvolume delete \\
+                ! btrfs subvolume delete \\
                     "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$s"
             then
                 sudo -u $_USER_NAME \\
