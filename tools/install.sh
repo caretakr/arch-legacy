@@ -210,7 +210,7 @@ EOF
 
     _log "Bootstrapping..."
 
-    _PACKAGES=" \
+    _PACMAN_PACKAGES=" \
         adwaita-qt5 \
         adwaita-qt6 \
         alsa-utils \
@@ -276,6 +276,8 @@ EOF
         pipewire-pulse \
         playerctl \
         podman \
+        podman-compose \
+        podman-docker \
         polkit \
         polybar \
         qemu-full \
@@ -310,8 +312,8 @@ EOF
         [ "$(dmidecode -s system-manufacturer)" = "Dell Inc." ] \
             && [ "$(dmidecode -s system-product-name)" = "XPS 13 9310" ]
     then
-        _PACKAGES=" \
-            $_PACKAGES \
+        _PACMAN_PACKAGES=" \
+            $_PACMAN_PACKAGES \
             iio-sensor-proxy \
             intel-media-driver \
             sof-firmware \
@@ -322,14 +324,14 @@ EOF
         [ "$(dmidecode -s system-manufacturer)" = "Apple Inc." ] \
             && [ "$(dmidecode -s system-product-name)" = "MacBookPro9,2" ]
     then
-        _PACKAGES=" \
-            $_PACKAGES \
+        _PACMAN_PACKAGES=" \
+            $_PACMAN_PACKAGES \
             broadcom-wl \
             libva-intel-driver \
         "
     fi
 
-    pacstrap /mnt $_PACKAGES
+    pacstrap /mnt $_PACMAN_PACKAGES
 
     _log "Setting file system table..."
 
@@ -431,6 +433,16 @@ RouteMetric=20
 RouteMetric=20
 EOF
 
+    _log "Setting sudoers..."
+
+    cat <<EOF > /mnt/etc/sudoers.d/20-admin
+%wheel ALL=(ALL:ALL) ALL
+EOF
+
+    cat <<EOF > /mnt/etc/sudoers.d/99-install
+ALL ALL=(ALL:ALL) NOPASSWD: ALL
+EOF
+
     _log "Setting user..."
 
     arch-chroot /mnt useradd -G wheel -m -s /bin/zsh $_USER_NAME
@@ -444,52 +456,10 @@ EOF
 
     echo "$_USER_NAME:$_USER_PASSWORD" | arch-chroot /mnt chpasswd
 
-    _log "Setting sudoers..."
-
-    cat <<EOF > /mnt/etc/sudoers.d/20-admin
-%wheel ALL=(ALL:ALL) ALL
-EOF
-
-    cat <<EOF > /mnt/etc/sudoers.d/99-install
-ALL ALL=(ALL:ALL) NOPASSWD: ALL
-EOF
-
     _log "Setting home"...
 
     arch-chroot /mnt sudo -u $_USER_NAME sh -c \
         "(git clone https://github.com/$_USER_NAME/home.git /home/$_USER_NAME && cd /home/$_USER_NAME && git submodule init && git submodule update)"
-
-    mkdir -p /mnt/home/$_USER_NAME/.ssh
-
-    cat <<EOF > /mnt/home/$_USER_NAME/.ssh/authorized_keys
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFEG40ygu8lYHrXJrbBE0m+vHHhT2VCxlBaEmXvyC6MF (none)
-EOF
-
-    arch-chroot /mnt chown $_USER_NAME:$_USER_NAME /home/$_USER_NAME/.ssh
-    arch-chroot /mnt chmod 0700 /home/$_USER_NAME/.ssh
-    arch-chroot /mnt chown $_USER_NAME:$_USER_NAME /home/$_USER_NAME/.ssh/authorized_keys
-    arch-chroot /mnt chmod 0600 /home/$_USER_NAME/.ssh/authorized_keys
-
-    _log "Setting Paru..."
-
-    arch-chroot /mnt sudo -u $_USER_NAME git clone \
-        https://aur.archlinux.org/paru.git /var/tmp/paru
-
-    arch-chroot /mnt sudo -u $_USER_NAME sh -c \
-        "(cd /var/tmp/paru && makepkg -si --noconfirm && cd / && rm -rf /var/tmp/paru)"
-
-    _log "Setting AUR packages..."
-
-    arch-chroot /mnt sudo -u $_USER_NAME paru -S --noconfirm \
-        plymouth-git \
-        xbanish
-
-    while \
-        ! arch-chroot /mnt sudo -u $_USER_NAME paru -S --noconfirm \
-            nerd-fonts-complete
-    do 
-        sleep 1
-    done
 
     _log "Setting ramdisk..."
 
@@ -497,17 +467,6 @@ EOF
     sed -i '/^HOOKS/s/(.*)/(base systemd sd-plymouth autodetect keyboard sd-vconsole modconf block sd-encrypt filesystems fsck)/g' /mnt/etc/mkinitcpio.conf
 
     arch-chroot /mnt mkinitcpio -P
-
-    _log "Setting keyring..."
-
-    arch-chroot /mnt sudo -u $_USER_NAME mkdir \
-        -p /home/$_USER_NAME/.config/autostart
-
-    arch-chroot /mnt sudo -u $_USER_NAME cp \
-        /etc/xdg/autostart/gnome-keyring-ssh.desktop \
-        /home/$_USER_NAME/.config/autostart
-
-    echo "Hidden=true" >> /mnt/home/$_USER_NAME/.config/autostart/gnome-keyring-ssh.desktop
 
     _log "Setting OOMD..."
 
@@ -622,13 +581,13 @@ _main() {
             "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$(date --utc +%Y%m%dT%H%M%SZ)+\$_TAG"
     then
         sudo -u $_USER_NAME \\
-            DISPLAY=:1 \\
+            DISPLAY=:0 \\
             DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
             notify-send -u normal "Snapshot created" \\
             "A snapshot of \$_FILESYSTEM BTRFS subvolume was created"
     else
         sudo -u $_USER_NAME \\
-            DISPLAY=:1 \\
+            DISPLAY=:0 \\
             DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
             notify-send -u critical "Snapshot failed" \\
             "A snapshot of \$_FILESYSTEM BTRFS subvolume was failed"
@@ -643,7 +602,7 @@ _main() {
                     "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$s"
             then
                 sudo -u $_USER_NAME \\
-                    DISPLAY=:1 \\
+                    DISPLAY=:0 \\
                     DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
                     notify-send -u critical "Cannot delete snapshot" \\
                     "A snapshot of \$_FILESYSTEM BTRFS subvolume cannot be deleted"
@@ -896,7 +855,7 @@ ExecStart=
 ExecStart=-/usr/bin/agetty --skip-login --nonewline --noissue --autologin $_USER_NAME --noclear %I \$TERM
 EOF
 
-    _log "Enable services and timers..."
+    _log "Setting services and timers..."
 
     arch-chroot /mnt systemctl enable bluetooth.service
     arch-chroot /mnt systemctl enable firewalld.service
@@ -917,6 +876,11 @@ EOF
     arch-chroot /mnt systemctl enable systemd-oomd.service
     arch-chroot /mnt systemctl enable systemd-resolved.service
     arch-chroot /mnt systemctl enable systemd-timesyncd.service
+
+    _log "Running user installation..."
+
+    arch-chroot /mnt sudo -u $_USER_NAME sh -c \
+        "/home/$_USER_NAME/.config/tools/install.sh"
 
     _log "Cleanup..."
 
