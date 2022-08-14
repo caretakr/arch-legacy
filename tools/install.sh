@@ -461,6 +461,26 @@ EOF
     arch-chroot /mnt sudo -u $_USER_NAME sh -c \
         "(git clone https://github.com/$_USER_NAME/home.git /home/$_USER_NAME && cd /home/$_USER_NAME && git submodule init && git submodule update)"
 
+    _log "Setting Paru..."
+
+    arch-chroot /mnt sudo -u $_USER_NAME git clone \
+        https://aur.archlinux.org/paru.git /var/tmp/paru
+
+    arch-chroot /mnt sudo -u $_USER_NAME sh -c \
+        "(cd /var/tmp/paru && makepkg -si --noconfirm && cd / && rm -rf /var/tmp/paru)"
+
+    _log "Setting AUR packages..."
+
+    _AUR_PACKAGES=" \
+        plymouth-git \
+    "
+
+    for p in $_AUR_PACKAGES; do
+        while ! arch-chroot /mnt sudo -u $_USER_NAME paru -S --noconfirm $p; do
+            sleep 1
+        done
+    done
+
     _log "Setting ramdisk..."
 
     sed -i '/^MODULES/s/(.*)/(btrfs)/g' /mnt/etc/mkinitcpio.conf
