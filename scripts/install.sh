@@ -4,14 +4,14 @@
 # Install
 #
 
-set -e
+set -eu
 
 if [ "$EUID" -ne 0 ]; then
   echo "Please run as root: exiting..."; exit
 fi
 
-_INPUT=0
-_STEP=0
+INPUT=0
+STEP=0
 
 _log() {
   printf "%s\n" "$@"
@@ -32,16 +32,16 @@ _message() {
 }
 
 _input() {
-  _INPUT=$(($_INPUT+1))
+  INPUT=$(($INPUT+1))
 
-  printf "  %s) %s" "$_INPUT" "$1"
+  printf "  %s) %s" "$INPUT" "$1"
 }
 
 _step() {
-  _STEP=$(($_STEP+1))
+  STEP=$(($STEP+1))
 
   printf "\n" \
-    && printf "%02d) %s\n" "$_STEP" "$1"
+    && printf "%02d) %s\n" "$STEP" "$1"
 }
 
 _line() {
@@ -122,206 +122,258 @@ _main() {
   _step 'Updating system clock...' \
     && _line
 
-  timedatectl set-ntp true \
-    && timedatectl status
+  (
+    set -eu
+
+    timedatectl set-ntp true \
+      && timedatectl status
+  )
 
   _step 'Cleaning dangling state...' \
     && _line
 
-  _MOUNTS="
-    /mnt/boot \
-  "
+  (
+    set -eu
 
-  for s in $_SUBVOLUMES; do
-    if [ "$s" = "base" ]; then
-      continue
-    fi
+    _MOUNTS="
+      /mnt/boot \
+    "
+
+    for s in $_SUBVOLUMES; do
+      if [ "$s" = "base" ]; then
+        continue
+      fi
+
+      _MOUNTS="
+        $_MOUNTS \
+        /mnt/$s
+      "
+    done
 
     _MOUNTS="
       $_MOUNTS \
-      /mnt/$s
+      /mnt
     "
-  done
 
-  _MOUNTS="
-    $_MOUNTS \
-    /mnt
-  "
+    for m in $_MOUNTS; do
+      if cat /proc/mounts | grep "$m" >/dev/null; then
+        _log "Unmounting dangled $m mount..."
 
-  for m in $_MOUNTS; do
-    if cat /proc/mounts | grep "$m" >/dev/null; then
-      _log "Unmounting dangled $m mount..."
+        umount "$m"
+      fi
+    done
 
-      umount "$m"
+    if [ -b "/dev/mapper/$_DATA_PARTITION" ]; then
+      _log 'Closing dangled encrypted device...'
+
+      cryptsetup close "$_DATA_PARTITION"
     fi
-  done
-
-  if [ -b "/dev/mapper/$_DATA_PARTITION" ]; then
-    _log 'Closing dangled encrypted device...'
-
-    cryptsetup close "$_DATA_PARTITION"
-  fi
+  )
 
   _step 'Partitioning device...' \
     && _line
 
-  sfdisk "/dev/$_STORAGE_DEVICE" <<EOF
-label: gpt
-device: /dev/$_STORAGE_DEVICE
-unit: sectors
-first-lba: 2048
-sector-size: 512
+  (
+    set -eu
 
-/dev/$_BOOT_PARTITION: start=2048, size=2097152, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
-/dev/$_SWAP_PARTITION: start=2099200, size=$_SWAP_SIZE, type=0657FD6D-A4AB-43C4-84E5-0933C84B4F4F
-/dev/$_DATA_PARTITION: start=$_DATA_START, size=, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
+    sfdisk "/dev/$_STORAGE_DEVICE" <<EOF
+  label: gpt
+  device: /dev/$_STORAGE_DEVICE
+  unit: sectors
+  first-lba: 2048
+  sector-size: 512
+
+  /dev/$_BOOT_PARTITION: start=2048, size=2097152, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+  /dev/$_SWAP_PARTITION: start=2099200, size=$_SWAP_SIZE, type=0657FD6D-A4AB-43C4-84E5-0933C84B4F4F
+  /dev/$_DATA_PARTITION: start=$_DATA_START, size=, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
 EOF
 
-  sleep 1
+    sleep 1
+  )
 
   _step 'Encrypting partitions...' \
     && _line
 
-  printf "$_DATA_PASSWORD" | cryptsetup luksFormat \
-      "/dev/$_DATA_PARTITION" -d - \
-    && printf "$_DATA_PASSWORD" | cryptsetup luksOpen "/dev/$_DATA_PARTITION" \
-        "$_DATA_PARTITION" -d -
+  (
+    set -eu
+
+    printf "$_DATA_PASSWORD" | cryptsetup luksFormat \
+        "/dev/$_DATA_PARTITION" -d - \
+      && printf "$_DATA_PASSWORD" | cryptsetup luksOpen "/dev/$_DATA_PARTITION" \
+          "$_DATA_PARTITION" -d -
+  )
 
   _step 'Formatting partitions...' \
     && _line
 
-  mkfs.fat -F 32 "/dev/$_BOOT_PARTITION" \
-    && mkswap "/dev/$_SWAP_PARTITION" \
-    && mkfs.btrfs --checksum sha256 "/dev/mapper/$_DATA_PARTITION"
+  (
+    set -eu
+
+    mkfs.fat -F 32 "/dev/$_BOOT_PARTITION" \
+      && mkswap "/dev/$_SWAP_PARTITION" \
+      && mkfs.btrfs --checksum sha256 "/dev/mapper/$_DATA_PARTITION"
+  )
 
   _step 'Mounting partitions...' \
     && _line
 
-  mount /dev/mapper/$_DATA_PARTITION /mnt
+  (
+    set -eu
 
-  for s in $_SUBVOLUMES; do
-    mkdir -p "/mnt/$s+snapshots" \
-      && btrfs subvolume create "/mnt/$s+live"
-  done
+    mount /dev/mapper/$_DATA_PARTITION /mnt
 
-  umount /mnt
+    for s in $_SUBVOLUMES; do
+      mkdir -p "/mnt/$s+snapshots" \
+        && btrfs subvolume create "/mnt/$s+live"
+    done
+
+    umount /mnt
+  )
 
   _step 'Mounting subvolumes...' \
     && _line
 
-  mount -o noatime,compress=zstd,subvol=base+live \
-      "/dev/mapper/$_DATA_PARTITION" /mnt \
-    && mkdir -p /mnt/boot \
-    && mount "/dev/$_BOOT_PARTITION" /mnt/boot
+  (
+    set -eu
 
-  for s in $_SUBVOLUMES; do
-    if [ "$s" = 'base' ]; then
-      continue
-    fi
+    mount -o noatime,compress=zstd,subvol=base+live \
+        "/dev/mapper/$_DATA_PARTITION" /mnt \
+      && mkdir -p /mnt/boot \
+      && mount "/dev/$_BOOT_PARTITION" /mnt/boot
 
-    mkdir -p "/mnt/$s" \
-      && mount -o "rw,noatime,compress=zstd:3,space_cache=v2,subvol=$s+live" \
-        /dev/mapper/$_DATA_PARTITION "/mnt/$s"
-  done
+    for s in $_SUBVOLUMES; do
+      if [ "$s" = 'base' ]; then
+        continue
+      fi
+
+      mkdir -p "/mnt/$s" \
+        && mount -o "rw,noatime,compress=zstd:3,space_cache=v2,subvol=$s+live" \
+          /dev/mapper/$_DATA_PARTITION "/mnt/$s"
+    done
+  )
 
   _step 'Fixing permissions...' \
     && _line
 
-  chmod 750 /mnt/root \
-    && chmod 750 /mnt/home/caretakr
+  (
+    set -eu
+
+    chmod 750 /mnt/root \
+      && chmod 750 /mnt/home/caretakr
+  )
 
   _step 'Bootstrapping system...' \
     && _line
 
-  _PACMAN_PACKAGES=" \
-    alsa-plugins \
-    alsa-utils \
-    base \
-    bluez \
-    bluez-utils \
-    brightnessctl \
-    btrfs-progs \
-    dosfstools \
-    efibootmgr \
-    fwupd \
-    git \
-    gst-libav \
-    gst-plugin-pipewire \
-    gst-plugins-bad \
-    gst-plugins-base \
-    gst-plugins-good \
-    gst-plugins-ugly \
-    gstreamer \
-    gstreamer-vaapi \
-    intel-ucode \
-    iwd \
-    libgcrypt \
-    linux \
-    linux-firmware \
-    man \
-    mesa \
-    pipewire \
-    pipewire-alsa \
-    pipewire-jack \
-    pipewire-pulse \
-    sof-firmware \
-    sudo \
-    udisks2 \
-    vulkan-intel \
-    wireplumber \
-    zsh
-  "
+  (
+    set -eu
 
-  if \
-    [ "$(dmidecode -s system-manufacturer)" = 'Dell Inc.' ] \
-      && [ "$(dmidecode -s system-product-name)" = 'XPS 13 9310' ]
-  then
     _PACMAN_PACKAGES=" \
-      $_PACMAN_PACKAGES \
-      iio-sensor-proxy \
-      intel-media-driver \
+      alsa-plugins \
+      alsa-utils \
+      base \
+      base-devel \
+      bluez \
+      bluez-utils \
+      brightnessctl \
+      btrfs-progs \
+      dosfstools \
+      efibootmgr \
+      fwupd \
+      git \
+      gst-libav \
+      gst-plugin-pipewire \
+      gst-plugins-bad \
+      gst-plugins-base \
+      gst-plugins-good \
+      gst-plugins-ugly \
+      gstreamer \
+      gstreamer-vaapi \
+      intel-ucode \
+      iwd \
+      libgcrypt \
+      linux \
+      linux-firmware \
+      man \
+      mesa \
+      pipewire \
+      pipewire-alsa \
+      pipewire-jack \
+      pipewire-pulse \
+      sof-firmware \
+      sudo \
+      udisks2 \
+      vulkan-intel \
+      wireplumber \
+      zsh
     "
-  fi
 
-  if \
-    [ "$(dmidecode -s system-manufacturer)" = 'Apple Inc.' ] \
-      && [ "$(dmidecode -s system-product-name)" = 'MacBookPro9,2' ]
-  then
-    _PACMAN_PACKAGES=" \
-      $_PACMAN_PACKAGES \
-      broadcom-wl \
-      libva-intel-driver \
-    "
-  fi
+    if \
+      [ "$(dmidecode -s system-manufacturer)" = 'Dell Inc.' ] \
+        && [ "$(dmidecode -s system-product-name)" = 'XPS 13 9310' ]
+    then
+      _PACMAN_PACKAGES=" \
+        $_PACMAN_PACKAGES \
+        iio-sensor-proxy \
+        intel-media-driver \
+      "
+    fi
 
-  pacstrap -K /mnt $_PACMAN_PACKAGES
+    if \
+      [ "$(dmidecode -s system-manufacturer)" = 'Apple Inc.' ] \
+        && [ "$(dmidecode -s system-product-name)" = 'MacBookPro9,2' ]
+    then
+      _PACMAN_PACKAGES=" \
+        $_PACMAN_PACKAGES \
+        broadcom-wl \
+        libva-intel-driver \
+      "
+    fi
+
+    pacstrap -K /mnt $_PACMAN_PACKAGES
+  )
 
   _step 'Setting filesystem...' \
     && _line
 
-  genfstab -U /mnt >> /mnt/etc/fstab
+  (
+    set -eu
+
+    genfstab -U /mnt >> /mnt/etc/fstab
+  )
 
   _step 'Setting timezone...' \
     && _line
 
-  arch-chroot /mnt ln -sf /usr/share/zoneinfo/America/Sao_Paulo \
-      /etc/localtime \
-    && arch-chroot /mnt hwclock --systohc
+  (
+    set -eu
+
+    arch-chroot /mnt ln -sf /usr/share/zoneinfo/America/Sao_Paulo \
+        /etc/localtime \
+      && arch-chroot /mnt hwclock --systohc
+  )
 
   _step "Setting locale..." \
     && _line
 
-  arch-chroot /mnt sed -i '/^#en_US.UTF-8 UTF-8/s/^#//g' /etc/locale.gen \
-    && arch-chroot /mnt sed -i '/^#pt_BR.UTF-8 UTF-8/s/^#//g' /etc/locale.gen \
-    && arch-chroot /mnt locale-gen
+  (
+    set -eu
+
+    arch-chroot /mnt sed -i '/^#en_US.UTF-8 UTF-8/s/^#//g' /etc/locale.gen \
+      && arch-chroot /mnt sed -i '/^#pt_BR.UTF-8 UTF-8/s/^#//g' /etc/locale.gen \
+      && arch-chroot /mnt locale-gen
+  )
 
   _step 'Setting language...' \
     && _line
 
-  _log 'Writing /etc/locale.conf:' \
-    && printf "\n"
+  (
+    set -eu
 
-  cat <<EOF | arch-chroot /mnt tee /etc/locale.conf
+    _log 'Writing /etc/locale.conf:' \
+      && printf "\n"
+
+    cat <<EOF | arch-chroot /mnt tee /etc/locale.conf
 LANG=en_US.UTF-8
 LANGUAGE=en_US.UTF-8
 LC_ADDRESS=pt_BR.UTF-8
@@ -337,104 +389,120 @@ LC_TELEPHONE=pt_BR.UTF-8
 LC_TIME=pt_BR.UTF-8
 LC_PAPER=pt_BR.UTF-8
 EOF
+  )
 
   _step 'Setting console...' \
     && _line
 
-  _KEYMAP='us'
+  (
+    set -eu
 
-  if \
-    [ "$(dmidecode -s system-manufacturer)" = 'Dell Inc.' ] \
-      && [ "$(dmidecode -s system-product-name)" = 'XPS 13 9310' \
-  ]; then
-    _KEYMAP='br-abnt2'
-  fi
+    _KEYMAP='us'
 
-  _log 'Writing /etc/vconsole.conf:' \
-    && printf "\n"
+    if \
+      [ "$(dmidecode -s system-manufacturer)" = 'Dell Inc.' ] \
+        && [ "$(dmidecode -s system-product-name)" = 'XPS 13 9310' \
+    ]; then
+      _KEYMAP='br-abnt2'
+    fi
 
-  cat <<EOF | arch-chroot /mnt tee /etc/vconsole.conf
+    _log 'Writing /etc/vconsole.conf:' \
+      && printf "\n"
+
+    cat <<EOF | arch-chroot /mnt tee /etc/vconsole.conf
 KEYMAP=$_KEYMAP
 EOF
+  )
 
   _step 'Bootstrapping user...' \
     && _line
 
-  arch-chroot /mnt useradd -G wheel -m -s /bin/zsh caretakr \
-    && arch-chroot /mnt chown caretakr:caretakr /home/caretakr \
-    && arch-chroot /mnt chmod 0750 /home/caretakr
+  (
+    set -eu
 
-  echo "caretakr:$_USER_PASSWORD" | arch-chroot /mnt chpasswd
+    arch-chroot /mnt useradd -G wheel -m -s /bin/zsh caretakr \
+      && arch-chroot /mnt chown caretakr:caretakr /home/caretakr \
+      && arch-chroot /mnt chmod 0750 /home/caretakr
 
-  arch-chroot /mnt sudo -u caretakr sh -c \
-    "(git clone https://github.com/caretakr/home.git /home/caretakr && cd /home/caretakr && git submodule init && git submodule update)"
+    echo "caretakr:$_USER_PASSWORD" | arch-chroot /mnt chpasswd
+
+    arch-chroot /mnt sudo -u caretakr sh -c \
+      "(git clone https://github.com/caretakr/home.git /home/caretakr && cd /home/caretakr && git submodule init && git submodule update)"
+  )
 
   _step 'Setting sudo...' \
     && _line
 
-  _log 'Writing /etc/sudoers.d/20-admin:' \
-    && printf "\n"
+  (
+    set -eu
 
-  cat <<EOF | arch-chroot /mnt tee /etc/sudoers.d/20-admin
+    _log 'Writing /etc/sudoers.d/20-admin:' \
+      && printf "\n"
+
+    cat <<EOF | arch-chroot /mnt tee /etc/sudoers.d/20-admin
 %wheel ALL=(ALL:ALL) ALL
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  _log 'Writing /etc/sudoers.d/99-install:' \
-    && printf "\n"
+    _log 'Writing /etc/sudoers.d/99-install:' \
+      && printf "\n"
 
-  cat <<EOF | arch-chroot /mnt tee /etc/sudoers.d/99-install
+    cat <<EOF | arch-chroot /mnt tee /etc/sudoers.d/99-install
 ALL ALL=(ALL:ALL) NOPASSWD: ALL
 EOF
+  )
 
   _step 'Setting network...' \
     && _line
 
-  _log 'Writing /etc/hostname:' \
-    && printf "\n"
+  (
+    set -eu
 
-  cat <<EOF | arch-chroot /mnt tee /etc/hostname
+    _log 'Writing /etc/hostname:' \
+      && printf "\n"
+
+    cat <<EOF | arch-chroot /mnt tee /etc/hostname
 $_HOSTNAME
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  _log 'Writing /etc/hosts:' \
-    && printf "\n"
+    _log 'Writing /etc/hosts:' \
+      && printf "\n"
 
-  cat <<EOF | arch-chroot /mnt tee /etc/hosts
+    cat <<EOF | arch-chroot /mnt tee /etc/hosts
 127.0.0.1 localhost
 127.0.1.1 $_HOSTNAME.localdomain $_HOSTNAME
 
 ::1 localhost
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  for i in \
-    ethernet \
-    wireless \
-  ; do
-    case "$i" in
-        ethernet)
-          _PRIORITY=20
-          _NAME='en*'
-          _METRIC=10
+    for i in \
+      ethernet \
+      wireless \
+    ; do
+      case "$i" in
+          ethernet)
+            _PRIORITY=20
+            _NAME='en*'
+            _METRIC=10
 
-          ;;
-        wireless)
-          _PRIORITY=25
-          _NAME='wl*'
-          _METRIC=10
-        
-          ;;
-    esac
+            ;;
+          wireless)
+            _PRIORITY=25
+            _NAME='wl*'
+            _METRIC=10
 
-    _log "Writing /etc/systemd/network/$_PRIORITY-$i.network:" \
-      && printf "\n"
+            ;;
+      esac
 
-    cat <<EOF | arch-chroot /mnt tee /etc/systemd/network/$_PRIORITY-$i.network
+      _log "Writing /etc/systemd/network/$_PRIORITY-$i.network:" \
+        && printf "\n"
+
+      cat <<EOF | arch-chroot /mnt tee /etc/systemd/network/$_PRIORITY-$i.network
 [Match]
 Name=$_NAME
 
@@ -448,18 +516,22 @@ RouteMetric=$_METRIC
 RouteMetric=$_METRIC
 EOF
 
-    printf "\n"
-  done
+      printf "\n"
+    done
 
-  arch-chroot /mnt systemctl enable systemd-networkd.service
+    arch-chroot /mnt systemctl enable systemd-networkd.service
+  )
 
   _step 'Setting Bluetooth...' \
     && _line
 
-  _log 'Writing /etc/systemd/system/bluetooth-toggle.service:' \
-    && printf "\n"
+  (
+    set -eu
 
-  cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/bluetooth-toggle.service
+    _log 'Writing /etc/systemd/system/bluetooth-toggle.service:' \
+      && printf "\n"
+
+    cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/bluetooth-toggle.service
 [Unit]
 Description=Toggle Bluetooth before/after sleep
 Before=sleep.target
@@ -482,83 +554,99 @@ WantedBy=hybrid-sleep.target
 WantedBy=suspend-then-hibernate.target
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  arch-chroot /mnt systemctl enable bluetooth.service \
-    && arch-chroot /mnt systemctl enable bluetooth-toggle.service 
+    arch-chroot /mnt systemctl enable bluetooth.service \
+      && arch-chroot /mnt systemctl enable bluetooth-toggle.service 
+  )
 
   _step 'Setting OOMD...' \
     && _line
 
-  mkdir -p /mnt/etc/systemd/system/user@.service.d
+  (
+    set -eu
 
-  _log 'Writing /etc/systemd/system/user@.service.d/override.conf:' \
-    && printf "\n"
+    mkdir -p /mnt/etc/systemd/system/user@.service.d
 
-  cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/user@.service.d/override.conf
+    _log 'Writing /etc/systemd/system/user@.service.d/override.conf:' \
+      && printf "\n"
+
+    cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/user@.service.d/override.conf
 [Service]
 ManagedOOMMemoryPressure=kill
 ManagedOOMMemoryPressureLimit=50%
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  mkdir -p /mnt/etc/systemd/system/-.slice.d
+    mkdir -p /mnt/etc/systemd/system/-.slice.d
 
-  _log 'Writing /etc/systemd/system/-.slice.d/override.conf:' \
-      && printf "\n"
+    _log 'Writing /etc/systemd/system/-.slice.d/override.conf:' \
+        && printf "\n"
 
-  cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/-.slice.d/override.conf
+    cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/-.slice.d/override.conf
 [Slice]
 ManagedOOMSwap=kill
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  mkdir -p /mnt/etc/systemd/oomd.conf.d
+    mkdir -p /mnt/etc/systemd/oomd.conf.d
 
-  _log 'Writing /etc/systemd/oomd.conf.d/override.conf:' \
-    && printf "\n"
+    _log 'Writing /etc/systemd/oomd.conf.d/override.conf:' \
+      && printf "\n"
 
-  cat <<EOF | arch-chroot /mnt tee /etc/systemd/oomd.conf.d/override.conf
+    cat <<EOF | arch-chroot /mnt tee /etc/systemd/oomd.conf.d/override.conf
 SwapUsedLimitPercent=90%
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  arch-chroot /mnt systemctl enable systemd-oomd.service
+    arch-chroot /mnt systemctl enable systemd-oomd.service
+  )
 
   _step 'Setting NTP...' \
     && _line
 
-  mkdir -p /mnt/etc/systemd/timesyncd.conf.d
+  (
+    set -eu
 
-  _log 'Writing /etc/systemd/timesyncd.conf.d/override.conf:' \
-    && printf "\n"
+    mkdir -p /mnt/etc/systemd/timesyncd.conf.d
 
-  cat <<EOF | arch-chroot /mnt tee /etc/systemd/timesyncd.conf.d/override.conf
+    _log 'Writing /etc/systemd/timesyncd.conf.d/override.conf:' \
+      && printf "\n"
+
+    cat <<EOF | arch-chroot /mnt tee /etc/systemd/timesyncd.conf.d/override.conf
 [Time]
 NTP=pool.ntp.org time.nist.gov pool.ntp.br
 FallbackNTP=time.google.com time.cloudflare.com time.facebook.com
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  arch-chroot /mnt systemctl enable systemd-timesyncd.service
+    arch-chroot /mnt systemctl enable systemd-timesyncd.service
+  )
 
   _step 'Setting DNS...' \
     && _line
 
-  ln -sf /run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf \
-    && arch-chroot /mnt systemctl enable systemd-resolved.service
+  (
+    set -eu
+
+    ln -sf /run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf \
+      && arch-chroot /mnt systemctl enable systemd-resolved.service
+  )
 
   _step 'Setting BTRFS snapshots...' \
     && _line
 
-  _log 'Writing /usr/local/bin/btrfs-snapshot:' \
-    && printf "\n"
+  (
+    set -eu
 
-  cat <<EOF | arch-chroot /mnt tee /usr/local/bin/btrfs-snapshot
+    _log 'Writing /usr/local/bin/btrfs-snapshot:' \
+      && printf "\n"
+
+    cat <<EOF | arch-chroot /mnt tee /usr/local/bin/btrfs-snapshot
 #!/bin/sh
 
 #
@@ -581,10 +669,10 @@ _main() {
       --subvolume=*) _SUBVOLUME="\${1#*=}"; shift 1;;
       --retention=*) _RETENTION="\${1#*=}"; shift 1;;
       --tag=*) _TAG="\${1#*=}"; shift 1;;
-      
+
       --device|--subvolume|--retention|--tag)
         echo "\$1 requires an argument" >&2; exit 1;;
-      
+
       -*) echo "unknown option: \$1" >&2; exit 1;;
       *) handle_argument "\$1"; shift 1;;
     esac
@@ -653,39 +741,39 @@ _main() {
 _main \$@
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  arch-chroot /mnt chmod 0755 /usr/local/bin/btrfs-snapshot \
-    && mkdir -p /mnt/etc/btrfs/snapshots
+    arch-chroot /mnt chmod 0755 /usr/local/bin/btrfs-snapshot \
+      && mkdir -p /mnt/etc/btrfs/snapshots
 
-  for s in $_SUBVOLUMES; do
-    for p in \
-      hourly \
-      daily \
-    ; do
-      case "$p" in
-        hourly) _RETENTION=24 ;;
-        daily) _RETENTION=7 ;;
-      esac
+    for s in $_SUBVOLUMES; do
+      for p in \
+        hourly \
+        daily \
+      ; do
+        case "$p" in
+          hourly) _RETENTION=24 ;;
+          daily) _RETENTION=7 ;;
+        esac
 
-      _log "Writing /etc/btrfs/snapshots/$(echo $s | sed "s/\//-/g")+$p.conf:" \
-        && printf "\n"
+        _log "Writing /etc/btrfs/snapshots/$(echo $s | sed "s/\//-/g")+$p.conf:" \
+          && printf "\n"
 
-      cat <<EOF | arch-chroot /mnt tee "/etc/btrfs/snapshots/$(echo $s | sed "s/\//-/g")+$p.conf"
+        cat <<EOF | arch-chroot /mnt tee "/etc/btrfs/snapshots/$(echo $s | sed "s/\//-/g")+$p.conf"
 DEVICE=/dev/mapper/$_DATA_PARTITION
 SUBVOLUME=$s
 RETENTION=$_RETENTION
 TAG=$p
 EOF
 
-      printf "\n"
-    done    
-  done
+        printf "\n"
+      done
+    done
 
-  _log 'Writing /etc/systemd/system/btrfs-snapshot@.service:' \
-    && printf "\n"
+    _log 'Writing /etc/systemd/system/btrfs-snapshot@.service:' \
+      && printf "\n"
 
-  cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/btrfs-snapshot@.service
+    cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/btrfs-snapshot@.service
 [Unit]
 Description=BTRFS snapshot of %i subvolume
 
@@ -695,21 +783,21 @@ EnvironmentFile=/etc/btrfs/snapshots/%i.conf
 ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d $DEVICE -s $SUBVOLUME -r $RETENTION -t $TAG
 EOF
 
-  for p in \
-      hourly \
-      daily \
-  ; do
-    case "$p" in
-      hourly) _TIMER='* *-*-* *:00:00' ;;
-      daily) _TIMER='* *-*-* 00:00:00' ;;
-    esac
+    for p in \
+        hourly \
+        daily \
+    ; do
+      case "$p" in
+        hourly) _TIMER='* *-*-* *:00:00' ;;
+        daily) _TIMER='* *-*-* 00:00:00' ;;
+      esac
 
-    printf "\n"
+      printf "\n"
 
-    _log "Writing /etc/systemd/system/btrfs-snapshot-$p@.timer:" \
-      && printf "\n"
+      _log "Writing /etc/systemd/system/btrfs-snapshot-$p@.timer:" \
+        && printf "\n"
 
-    cat <<EOF | arch-chroot /mnt tee "/etc/systemd/system/btrfs-snapshot-$p@.timer"
+      cat <<EOF | arch-chroot /mnt tee "/etc/systemd/system/btrfs-snapshot-$p@.timer"
 [Unit]
 Description=$p BTRFS snapshot of %i subvolume
 
@@ -722,95 +810,108 @@ Unit=btrfs-snapshot@%i+$p.service
 WantedBy=timers.target
 EOF
 
-    printf "\n"
+      printf "\n"
 
-    for s in $_SUBVOLUMES; do
-      arch-chroot /mnt systemctl enable \
-          "btrfs-snapshot-$p@$(echo $s | sed "s/\//-/g").timer"
+      for s in $_SUBVOLUMES; do
+        arch-chroot /mnt systemctl enable \
+            "btrfs-snapshot-$p@$(echo $s | sed "s/\//-/g").timer"
+      done
     done
-  done
+  )
 
   printf "\n"
 
   _step 'Setting services...' \
     && _line
 
-  arch-chroot /mnt systemctl enable fstrim.timer
-  arch-chroot /mnt systemctl enable iwd.service
+  (
+    set -eu
+
+    arch-chroot /mnt systemctl enable fstrim.timer
+    arch-chroot /mnt systemctl enable iwd.service
+  )
 
   _step 'Patching ramdisk...' \
     && _line
 
-  arch-chroot /mnt sed -i '/^MODULES/s/(.*)/(btrfs)/g' /etc/mkinitcpio.conf \
-    && arch-chroot /mnt sed \
-        -i '/^HOOKS/s/(.*)/(base systemd autodetect keyboard sd-vconsole modconf block sd-encrypt filesystems fsck)/g' \
-        /etc/mkinitcpio.conf
+  (
+    set -eu
 
-  arch-chroot /mnt mkinitcpio -P
+    arch-chroot /mnt sed -i '/^MODULES/s/(.*)/(btrfs)/g' /etc/mkinitcpio.conf \
+      && arch-chroot /mnt sed \
+          -i '/^HOOKS/s/(.*)/(base systemd autodetect keyboard sd-vconsole modconf block sd-encrypt filesystems fsck)/g' \
+          /etc/mkinitcpio.conf
+
+    arch-chroot /mnt mkinitcpio -P
+  )
 
   _step 'Setting boot...' \
     && _line
 
-  arch-chroot /mnt bootctl install
+  (
+    set -eu
 
-  printf "\n"
+    arch-chroot /mnt bootctl install
 
-  _log 'Writing /boot/loader/loader.conf:' \
-    && printf "\n"
+    printf "\n"
 
-  cat <<EOF | arch-chroot /mnt tee /boot/loader/loader.conf
+    _log 'Writing /boot/loader/loader.conf:' \
+      && printf "\n"
+
+    cat <<EOF | arch-chroot /mnt tee /boot/loader/loader.conf
 default arch
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  _log 'Writing /boot/loader/entries/arch.conf:' \
-    && printf "\n"
+    _log 'Writing /boot/loader/entries/arch.conf:' \
+      && printf "\n"
 
-  cat <<EOF | arch-chroot /mnt tee /boot/loader/entries/arch.conf
+    cat <<EOF | arch-chroot /mnt tee /boot/loader/entries/arch.conf
 title Arch
 linux /vmlinuz-linux
 initrd /initramfs-linux.img
 options rd.luks.name=$(blkid -s UUID -o value /dev/$_DATA_PARTITION)=$_DATA_PARTITION rd.luks.options=discard root=UUID=$(blkid -s UUID -o value /dev/mapper/$_DATA_PARTITION) rootflags=subvol=base+live rw quiet splash loglevel=3 rd.systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=0 i915.enable_psr=0 i915.enable_fbc=1
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  _log 'Writing /boot/loader/entries/arch-fallback.conf:' \
-    && printf "\n"
+    _log 'Writing /boot/loader/entries/arch-fallback.conf:' \
+      && printf "\n"
 
-  cat <<EOF | arch-chroot /mnt tee /boot/loader/entries/arch-fallback.conf
+    cat <<EOF | arch-chroot /mnt tee /boot/loader/entries/arch-fallback.conf
 title Arch (fallback)
 linux /vmlinuz-linux
 initrd /initramfs-linux-fallback.img
 options rd.luks.name=$(blkid -s UUID -o value /dev/$_DATA_PARTITION)=$_DATA_PARTITION rd.luks.options=discard root=UUID=$(blkid -s UUID -o value /dev/mapper/$_DATA_PARTITION) rootflags=subvol=base+live rw quiet splash loglevel=3 rd.systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=0 i915.enable_psr=0 i915.enable_fbc=1
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  arch-chroot /mnt touch /root/.hushlogin /home/caretakr/.hushlogin
-  arch-chroot /mnt chown caretakr:caretakr /home/caretakr/.hushlogin
-  arch-chroot /mnt setterm -cursor on >> /etc/issue
+    arch-chroot /mnt touch /root/.hushlogin /home/caretakr/.hushlogin
+    arch-chroot /mnt chown caretakr:caretakr /home/caretakr/.hushlogin
+    arch-chroot /mnt setterm -cursor on >> /etc/issue
 
-  _log 'Writing /etc/sysctl.d/20-quiet.conf:' \
-    && printf "\n"
+    _log 'Writing /etc/sysctl.d/20-quiet.conf:' \
+      && printf "\n"
 
-  cat <<EOF | arch-chroot /mnt tee /etc/sysctl.d/20-quiet.conf
+    cat <<EOF | arch-chroot /mnt tee /etc/sysctl.d/20-quiet.conf
 kernel.printk = 3 3 3 3
 EOF
 
-  printf "\n"
+    printf "\n"
 
-  mkdir -p /mnt/etc/systemd/system/getty@tty1.service.d
+    mkdir -p /mnt/etc/systemd/system/getty@tty1.service.d
 
-  _log 'Writing /etc/systemd/system/getty@tty1.service.d/override.conf:' \
-    && printf "\n"
+    _log 'Writing /etc/systemd/system/getty@tty1.service.d/override.conf:' \
+      && printf "\n"
 
-  cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/getty@tty1.service.d/override.conf
+    cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/getty@tty1.service.d/override.conf
 [Service]
 ExecStart=
 ExecStart=-/usr/bin/agetty --skip-login --nonewline --noissue --autologin caretakr --noclear %I \$TERM
 EOF
+  )
 
   printf "\n"
 
@@ -819,13 +920,21 @@ EOF
 
   printf "\n"
 
-  arch-chroot /mnt sudo -u caretakr sh -c \
-    "/home/caretakr/.scripts/install.sh"
+  (
+    set -eu
+
+    arch-chroot /mnt sudo -u caretakr sh -c \
+      "/home/caretakr/.scripts/install.sh"
+  )
 
   _step 'Cleanup...' \
     && _line
 
-  rm -f /mnt/etc/sudoers.d/99-install
+  (
+    set -eu
+
+    rm -f /mnt/etc/sudoers.d/99-install
+  )
 }
 
 reset
