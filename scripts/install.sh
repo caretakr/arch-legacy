@@ -59,6 +59,9 @@ _main() {
   _input 'Hostname: ' \
     && read _HOSTNAME
 
+  _input 'Swap size (GB): ' \
+    && read _SWAP_SIZE
+
   _input 'Storage device: ' \
     && read _STORAGE_DEVICE
 
@@ -100,7 +103,12 @@ _main() {
     _DATA_PARTITION="${_STORAGE_DEVICE}3"
   fi
 
-  _SWAP_SIZE="$(($(awk '( $1 == "MemTotal:" ) { printf "%3.0f", ($2/1000)*3 }' /proc/meminfo)*2048))"
+  if [ ! -z "$_SWAP_SIZE" ]; then
+    _SWAP_SIZE="$((($_SWAP_SIZE*1024)*2048))"
+  else
+    _SWAP_SIZE="$(($(awk '( $1 == "MemTotal:" ) { printf "%3.0f", ($2/1024)*3 }' /proc/meminfo)*2048))"
+  fi
+
   _DATA_START="$(($_SWAP_SIZE+2099200))"
 
   _SUBVOLUMES="
