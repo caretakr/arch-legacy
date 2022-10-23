@@ -11,10 +11,12 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 _log() {
-    printf "\n▶ $1\n\n"
+    printf "▶ $1\n"
 }
 
 _main() {
+    reset
+
     _log "Please provide the following:"
 
     printf "▶ Storage device: "; read _STORAGE_DEVICE
@@ -30,7 +32,6 @@ _main() {
         _log "Data password mismatch: exiting..."; exit
     fi
 
-    printf "▶ User name: "; read _USER_NAME
     printf "▶ User password: "; read -s _USER_PASSWORD && printf "\n"
     printf "▶ User password confirmation: "; read -s _USER_PASSWORD_CONFIRMATION && printf "\n"
 
@@ -48,53 +49,30 @@ _main() {
         _DATA_PARTITION="${_STORAGE_DEVICE}3"
     fi
 
-    _SWAP_SIZE="$(($(awk '( $1 == "MemTotal:" ) { printf "%3.0f", ($2/1024)*1.5 }' /proc/meminfo)*2048))"
+    _SWAP_SIZE="$(($(awk '( $1 == "MemTotal:" ) { printf "%3.0f", ($2/1000)*3 }' /proc/meminfo)*2048))"
     _DATA_START="$(($_SWAP_SIZE+2099200))"
 
     _log "Updating system clock..."
 
     timedatectl set-ntp true
 
-    _log "Checking previous states..."
+    for m in \
+        /mnt/boot \
+        /mnt/root \
+        /mnt/home/caretakr \
+        /mnt/var/log \
+        /mnt/var/lib/libvirt/images \
+        /mnt \
+    ; do
+        if cat /proc/mounts | grep "$m" >/dev/null; then
+            _log "Unmounting dangled "$m" mount..."
 
-    if cat /proc/mounts | grep /mnt/boot >/dev/null; then
-        _log "Unmounting boot partition..."
-
-        umount /mnt/boot
-    fi
-
-    if cat /proc/mounts | grep /mnt/root >/dev/null; then
-        _log "Unmounting root home partition..."
-
-        umount /mnt/root
-    fi
-
-    if cat /proc/mounts | grep /mnt/home/$_USER_NAME >/dev/null; then
-        _log "Unmounting user home partition..."
-
-        umount /mnt/home/$_USER_NAME
-    fi
-
-    if cat /proc/mounts | grep /mnt/var/log >/dev/null; then
-        _log "Unmounting log partition..."
-
-        umount /mnt/var/log
-    fi
-
-    if cat /proc/mounts | grep /mnt/var/lib/libvirt/images >/dev/null; then
-        _log "Unmounting libvirt images partition..."
-
-        umount /mnt/var/lib/libvirt/images
-    fi
-
-    if cat /proc/mounts | grep /mnt >/dev/null; then
-        _log "Unmounting root partition..."
-
-        umount /mnt
-    fi
+            umount "$m"
+        fi
+    done
 
     if [ -b /dev/mapper/$_DATA_PARTITION ]; then
-        _log "Closing encrypted device..."
+        _log "Closing dangled encrypted device..."
 
         cryptsetup close $_DATA_PARTITION
     fi
@@ -115,7 +93,7 @@ EOF
 
     _log "Waiting for disks syncing..."
 
-    sleep 5
+    sleep 1
 
     _log "Encrypting data partition..."
 
@@ -136,7 +114,7 @@ EOF
 
     _log "Formatting data partition..."
 
-    mkfs.btrfs -f /dev/mapper/$_DATA_PARTITION
+    mkfs.btrfs --checksum sha256 /dev/mapper/$_DATA_PARTITION
 
     _log "Mounting data partition..."
 
@@ -154,8 +132,8 @@ EOF
 
     _log "Creating subvolume for user home..."
 
-    mkdir -p /mnt/home/$_USER_NAME+snapshots
-    btrfs subvolume create /mnt/home/$_USER_NAME+live
+    mkdir -p /mnt/home/caretakr+snapshots
+    btrfs subvolume create /mnt/home/caretakr+live
 
     _log "Creating subvolume for logs..."
 
@@ -178,7 +156,7 @@ EOF
 
     _log "Creating mount points..."
 
-    mkdir -p /mnt/{boot,root,home/$_USER_NAME,var/lib/libvirt/images,var/log}
+    mkdir -p /mnt/{boot,root,home/caretakr,var/lib/libvirt/images,var/log}
 
     _log "Mounting boot partition..."
 
@@ -191,8 +169,8 @@ EOF
 
     _log "Mounting user home subvolume..."
 
-    mount -o noatime,compress=zstd,subvol=home/$_USER_NAME+live \
-        /dev/mapper/$_DATA_PARTITION /mnt/home/$_USER_NAME
+    mount -o noatime,compress=zstd,subvol=home/caretakr+live \
+        /dev/mapper/$_DATA_PARTITION /mnt/home/caretakr
 
     _log "Mounting logs subvolume..."
 
@@ -201,12 +179,12 @@ EOF
 
     _log "Mounting libvirt images subvolume..."
         
-    mount -o noatime,nodatacow,compress=zstd,subvol=var/lib/libvirt/images+live \
+    mount -o noatime,compress=zstd,subvol=var/lib/libvirt/images+live \
         /dev/mapper/$_DATA_PARTITION /mnt/var/lib/libvirt/images
 
     _log "Updating keyring..."
 
-    yes | pacman -Sy archlinux-keyring
+    pacman -Sy --noconfirm archlinux-keyring
 
     _log "Bootstrapping..."
 
@@ -214,7 +192,6 @@ EOF
         adwaita-qt5 \
         adwaita-qt6 \
         alsa-utils \
-        alsa-plugins \
         base \
         base-devel \
         bluez \
@@ -224,6 +201,8 @@ EOF
         bspwm \
         btop \
         btrfs-progs \
+        chromium \
+        dbeaver \
         dmidecode \
         dnsmasq \
         dosfstools \
@@ -231,26 +210,32 @@ EOF
         edk2-ovmf \
         efibootmgr \
         feh \
+        firefox \
+        firefox-developer-edition \
         firewalld \
         flatpak \
         fuse-overlayfs \
+        fwupd \
         git \
         gnome-keyring \
         gnupg \
-        gstreamer \
-        gstreamer-vaapi \
         gst-libav \
         gst-plugin-pipewire \
         gst-plugins-bad \
         gst-plugins-base \
         gst-plugins-good \
         gst-plugins-ugly \
+        gstreamer \
+        gstreamer-vaapi \
         gtk3 \
         gtk4 \
+        helm \
         intel-ucode \
         iptables-nft \
         iwd \
+        jq \
         kitty \
+        kubectl \
         libfido2 \
         libnotify \
         libsecret \
@@ -259,9 +244,12 @@ EOF
         linux \
         linux-firmware \
         linux-headers \
+        man \
         mate-polkit \
         mesa \
+        minikube \
         mkinitcpio \
+        mpv \
         noto-fonts \
         noto-fonts-cjk \
         noto-fonts-emoji \
@@ -283,9 +271,12 @@ EOF
         qemu-full \
         qt5-base \
         qt6-base \
+        redshift \
         rofi \
         rsync \
+        rustup \
         seahorse \
+        skaffold \
         slirp4netns \
         slock \
         sof-firmware \
@@ -293,6 +284,11 @@ EOF
         swtpm \
         sxhkd \
         systemd-resolvconf \
+        telegram-desktop \
+        tmux \
+        trash-cli \
+        udisks2 \
+        unzip \
         vim \
         virt-manager \
         vulkan-intel \
@@ -300,6 +296,7 @@ EOF
         wireplumber \
         xdg-desktop-portal-gtk \
         xorg-server \
+        xorg-xev \
         xorg-xinit \
         xorg-xinput \
         xorg-xrandr \
@@ -445,28 +442,28 @@ EOF
 
     _log "Setting user..."
 
-    arch-chroot /mnt useradd -G wheel -m -s /bin/zsh $_USER_NAME
-    arch-chroot /mnt chown $_USER_NAME:$_USER_NAME /home/$_USER_NAME
-    arch-chroot /mnt chmod 0700 /home/$_USER_NAME
+    arch-chroot /mnt useradd -G wheel -m -s /bin/zsh caretakr
+    arch-chroot /mnt chown caretakr:caretakr /home/caretakr
+    arch-chroot /mnt chmod 0700 /home/caretakr
 
     touch /mnt/etc/subuid /mnt/etc/subgid
     
     arch-chroot /mnt usermod --add-subuids 100000-165535 \
-        --add-subgids 100000-165535 $_USER_NAME
+        --add-subgids 100000-165535 caretakr
 
-    echo "$_USER_NAME:$_USER_PASSWORD" | arch-chroot /mnt chpasswd
+    echo "caretakr:$_USER_PASSWORD" | arch-chroot /mnt chpasswd
 
     _log "Setting home"...
 
-    arch-chroot /mnt sudo -u $_USER_NAME sh -c \
-        "(git clone https://github.com/$_USER_NAME/home.git /home/$_USER_NAME && cd /home/$_USER_NAME && git submodule init && git submodule update)"
+    arch-chroot /mnt sudo -u caretakr sh -c \
+        "(git clone https://github.com/caretakr/home.git /home/caretakr && cd /home/caretakr && git submodule init && git submodule update)"
 
     _log "Setting Paru..."
 
-    arch-chroot /mnt sudo -u $_USER_NAME git clone \
+    arch-chroot /mnt sudo -u caretakr git clone \
         https://aur.archlinux.org/paru.git /var/tmp/paru
 
-    arch-chroot /mnt sudo -u $_USER_NAME sh -c \
+    arch-chroot /mnt sudo -u caretakr sh -c \
         "(cd /var/tmp/paru && makepkg -si --noconfirm && cd / && rm -rf /var/tmp/paru)"
 
     _log "Setting AUR packages..."
@@ -476,7 +473,7 @@ EOF
     "
 
     for p in $_AUR_PACKAGES; do
-        while ! arch-chroot /mnt sudo -u $_USER_NAME paru -S --noconfirm $p; do
+        while ! arch-chroot /mnt sudo -u caretakr paru -S --noconfirm $p; do
             sleep 1
         done
     done
@@ -525,11 +522,11 @@ EOF
 
     ln -sf /run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
 
-    _log "Setting backup..."
+    _log "Setting snapshots..."
 
-    cat <<EOF > /mnt/usr/local/bin/btrfs-snapshot
+    cat <<EOF > /mnt/usr/local/bin/snapshot
 #
-# BTRFS snapshot utility
+# Snapshot utility
 #
 
 if [ "\$EUID" -ne 0 ]; then
@@ -591,7 +588,7 @@ _main() {
         hourly) _RETENTION="24"; _TAG="hourly"; shift 2;;
         daily) _RETENTION="7"; _TAG="daily"; shift 2;;
         weekly) _RETENTION="4"; _TAG="weekly"; shift 2;;
-        monthly) _RETENTION="12"; _TAG="monthly"; shift 2;;
+        monthly) _RETENTION="3"; _TAG="monthly"; shift 2;;
     esac
 
     mount -o noatime,compress=zstd "\$_DEVICE" "\$_WORKING_DIRECTORY"
@@ -600,17 +597,17 @@ _main() {
         btrfs subvolume snapshot -r "\$_FILESYSTEM" \\
             "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$(date --utc +%Y%m%dT%H%M%SZ)+\$_TAG"
     then
-        sudo -u $_USER_NAME \\
+        sudo -u caretakr \\
             DISPLAY=:0 \\
             DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
             notify-send -u normal "Snapshot created" \\
-            "A snapshot of \$_FILESYSTEM BTRFS subvolume was created"
+            "A snapshot of \$_FILESYSTEM subvolume was created"
     else
-        sudo -u $_USER_NAME \\
+        sudo -u caretakr \\
             DISPLAY=:0 \\
             DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
             notify-send -u critical "Snapshot failed" \\
-            "A snapshot of \$_FILESYSTEM BTRFS subvolume was failed"
+            "A snapshot of \$_FILESYSTEM subvolume was failed"
     fi
 
     _COUNT=1
@@ -621,11 +618,11 @@ _main() {
                 ! btrfs subvolume delete \\
                     "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$s"
             then
-                sudo -u $_USER_NAME \\
+                sudo -u caretakr \\
                     DISPLAY=:0 \\
                     DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
                     notify-send -u critical "Cannot delete snapshot" \\
-                    "A snapshot of \$_FILESYSTEM BTRFS subvolume cannot be deleted"
+                    "A snapshot of \$_FILESYSTEM subvolume cannot be deleted"
             fi
         fi
 
@@ -640,197 +637,456 @@ _main() {
 _main \$@
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-base@.service
+    arch-chroot /mnt chmod 0755 /usr/local/bin/snapshot
+
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-base@.service
 [Unit]
-Description=Snapshot of base BTRFS subvolume
+Description=%i snapshot of base subvolume
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/$_DATA_PARTITION -f / -l base -p %i
+ExecStart=/bin/sh /usr/local/bin/snapshot -d /dev/mapper/$_DATA_PARTITION -f / -l base -p %i
 
 [Install]
-Also=btrfs-snapshot-base-%i.timer
+Also=snapshot-base-%i.timer
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-root@.service
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-root@.service
 [Unit]
-Description=Snapshot of root BTRFS subvolume
+Description=%i snapshot of root subvolume
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/$_DATA_PARTITION -f /root -l root -p %i
+ExecStart=/bin/sh /usr/local/bin/snapshot -d /dev/mapper/$_DATA_PARTITION -f /root -l root -p %i
 
 [Install]
-Also=btrfs-snapshot-root-%i.timer
+Also=snapshot-root-%i.timer
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-home-caretakr@.service
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-home-caretakr@.service
 [Unit]
-Description=Snapshot of home/caretakr BTRFS subvolume
+Description=%i snapshot of home/caretakr subvolume
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/$_DATA_PARTITION -f /home/caretakr -l home/caretakr -p %i
+ExecStart=/bin/sh /usr/local/bin/snapshot -d /dev/mapper/$_DATA_PARTITION -f /home/caretakr -l home/caretakr -p %i
 
 [Install]
-Also=btrfs-snapshot-home-caretakr-%i.timer
+Also=snapshot-home-caretakr-%i.timer
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-var-log@.service
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-var-log@.service
 [Unit]
-Description=Snapshot of var/log BTRFS subvolume
+Description=%i snapshot of var/log subvolume
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/$_DATA_PARTITION -f /var/log -l var/log -p %i
+ExecStart=/bin/sh /usr/local/bin/snapshot -d /dev/mapper/$_DATA_PARTITION -f /var/log -l var/log -p %i
 
 [Install]
-Also=btrfs-snapshot-var-log-%i.timer
+Also=snapshot-var-log-%i.timer
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-var-lib-libvirt-images@.service
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-var-lib-libvirt-images@.service
 [Unit]
-Description=Snapshot of var/lib/libvirt/images BTRFS subvolume
+Description=%i snapshot of var/lib/libvirt/images subvolume
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d /dev/mapper/$_DATA_PARTITION -f /var/lib/libvirt/images -l var/lib/libvirt/images -p %i
+ExecStart=/bin/sh /usr/local/bin/snapshot -d /dev/mapper/$_DATA_PARTITION -f /var/lib/libvirt/images -l var/lib/libvirt/images -p %i
 
 [Install]
-Also=btrfs-snapshot-var-lib-libvirt-images-%i.timer
+Also=snapshot-var-lib-libvirt-images-%i.timer
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-base-hourly.timer
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-base-hourly.timer
 [Unit]
-Description=Hourly snapshot of base BTRFS subvolume
+Description=hourly snapshot of base subvolume
 
 [Timer]
-OnCalendar=*-*-* *:00:00
+OnCalendar=* *-*-* *:00:00
 Persistent=true
-Unit=btrfs-snapshot-base@hourly.service
+Unit=snapshot-base@hourly.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-root-hourly.timer
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-root-hourly.timer
 [Unit]
-Description=Hourly snapshot of root BTRFS subvolume
+Description=hourly snapshot of root subvolume
 
 [Timer]
-OnCalendar=*-*-* *:00:00
+OnCalendar=* *-*-* *:00:00
 Persistent=true
-Unit=btrfs-snapshot-root@hourly.service
+Unit=snapshot-root@hourly.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-home-caretakr-hourly.timer
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-home-caretakr-hourly.timer
 [Unit]
-Description=Hourly snapshot of home/caretakr BTRFS subvolume
+Description=hourly snapshot of home/caretakr subvolume
 
 [Timer]
-OnCalendar=*-*-* *:00:00
+OnCalendar=* *-*-* *:00:00
 Persistent=true
-Unit=btrfs-snapshot-home-caretakr@hourly.service
+Unit=snapshot-home-caretakr@hourly.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-var-log-hourly.timer
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-var-log-hourly.timer
 [Unit]
-Description=Hourly snapshot of var/log BTRFS subvolume
+Description=hourly snapshot of var/log subvolume
 
 [Timer]
-OnCalendar=*-*-* *:00:00
+OnCalendar=* *-*-* *:00:00
 Persistent=true
-Unit=btrfs-snapshot-var-log@hourly.service
+Unit=snapshot-var-log@hourly.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-var-lib-libvirt-images-hourly.timer
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-var-lib-libvirt-images-hourly.timer
 [Unit]
-Description=Hourly snapshot of var/lib/libvirt/images BTRFS subvolume
+Description=hourly snapshot of var/lib/libvirt/images subvolume
 
 [Timer]
-OnCalendar=*-*-* *:00:00
+OnCalendar=* *-*-* *:00:00
 Persistent=true
-Unit=btrfs-snapshot-var-lib-libvirt-images@hourly.service
+Unit=snapshot-var-lib-libvirt-images@hourly.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-base-daily.timer
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-base-daily.timer
 [Unit]
-Description=Daily snapshot of base BTRFS subvolume
+Description=daily snapshot of base subvolume
 
 [Timer]
-OnCalendar=*-*-* 00:00:00
+OnCalendar=* *-*-* 00:00:00
 Persistent=true
-Unit=btrfs-snapshot-base@daily.service
+Unit=snapshot-base@daily.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-root-daily.timer
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-root-daily.timer
 [Unit]
-Description=Daily snapshot of root BTRFS subvolume
+Description=daily snapshot of root subvolume
 
 [Timer]
-OnCalendar=*-*-* 00:00:00
+OnCalendar=* *-*-* 00:00:00
 Persistent=true
-Unit=btrfs-snapshot-root@daily.service
+Unit=snapshot-root@daily.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-home-caretakr-daily.timer
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-home-caretakr-daily.timer
 [Unit]
-Description=Daily snapshot of home/caretakr BTRFS subvolume
+Description=daily snapshot of home/caretakr subvolume
 
 [Timer]
-OnCalendar=*-*-* 00:00:00
+OnCalendar=* *-*-* 00:00:00
 Persistent=true
-Unit=btrfs-snapshot-home-caretakr@daily.service
+Unit=snapshot-home-caretakr@daily.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-var-log-daily.timer
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-var-log-daily.timer
 [Unit]
-Description=Daily snapshot of var/log BTRFS subvolume
+Description=daily snapshot of var/log subvolume
 
 [Timer]
-OnCalendar=*-*-* 00:00:00
+OnCalendar=* *-*-* 00:00:00
 Persistent=true
-Unit=btrfs-snapshot-var-log@daily.service
+Unit=snapshot-var-log@daily.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    cat <<EOF > /mnt/etc/systemd/system/btrfs-snapshot-var-lib-libvirt-images-daily.timer
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-var-lib-libvirt-images-daily.timer
 [Unit]
-Description=Daily snapshot of var/lib/libvirt/images BTRFS subvolume
+Description=daily snapshot of var/lib/libvirt/images subvolume
 
 [Timer]
-OnCalendar=*-*-* 00:00:00
+OnCalendar=* *-*-* 00:00:00
 Persistent=true
-Unit=btrfs-snapshot-var-lib-libvirt-images@daily.service
+Unit=snapshot-var-lib-libvirt-images@daily.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    arch-chroot /mnt chmod 0755 /usr/local/bin/btrfs-snapshot
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-base-weekly.timer
+[Unit]
+Description=weekly snapshot of base subvolume
+
+[Timer]
+OnCalendar=Sun *-*-* 00:00:00
+Persistent=true
+Unit=snapshot-base@weekly.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-root-weekly.timer
+[Unit]
+Description=weekly snapshot of root subvolume
+
+[Timer]
+OnCalendar=Sun *-*-* 00:00:00
+Persistent=true
+Unit=snapshot-root@weekly.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-home-caretakr-weekly.timer
+[Unit]
+Description=weekly snapshot of home/caretakr subvolume
+
+[Timer]
+OnCalendar=Sun *-*-* 00:00:00
+Persistent=true
+Unit=snapshot-home-caretakr@weekly.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-var-log-weekly.timer
+[Unit]
+Description=weekly snapshot of var/log subvolume
+
+[Timer]
+OnCalendar=Sun *-*-* 00:00:00
+Persistent=true
+Unit=snapshot-var-log@weekly.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-var-lib-libvirt-images-weekly.timer
+[Unit]
+Description=weekly snapshot of var/lib/libvirt/images subvolume
+
+[Timer]
+OnCalendar=Sun *-*-* 00:00:00
+Persistent=true
+Unit=snapshot-var-lib-libvirt-images@weekly.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-base-monthly.timer
+[Unit]
+Description=monthly snapshot of base subvolume
+
+[Timer]
+OnCalendar=* *-*-01 00:00:00
+Persistent=true
+Unit=snapshot-base@monthly.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-root-monthly.timer
+[Unit]
+Description=monthly snapshot of root subvolume
+
+[Timer]
+OnCalendar=* *-*-01 00:00:00
+Persistent=true
+Unit=snapshot-root@monthly.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-home-caretakr-monthly.timer
+[Unit]
+Description=monthly snapshot of home/caretakr subvolume
+
+[Timer]
+OnCalendar=* *-*-01 00:00:00
+Persistent=true
+Unit=snapshot-home-caretakr@monthly.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-var-log-monthly.timer
+[Unit]
+Description=monthly snapshot of var/log subvolume
+
+[Timer]
+OnCalendar=* *-*-01 00:00:00
+Persistent=true
+Unit=snapshot-var-log@monthly.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    cat <<EOF > /mnt/etc/systemd/system/snapshot-var-lib-libvirt-images-monthly.timer
+[Unit]
+Description=monthly snapshot of var/lib/libvirt/images subvolume
+
+[Timer]
+OnCalendar=* *-*-01 00:00:00
+Persistent=true
+Unit=snapshot-var-lib-libvirt-images@monthly.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    _log "Setting backups..."
+
+    cat <<EOF > /mnt/usr/local/bin/backup
+#
+# Backup utility
+#
+
+if [ "\$EUID" -ne 0 ]; then
+    echo "Please run as root"; exit 1
+fi
+
+_main() {
+    while [ "\$#" -gt 0 ]; do
+        case "\$1" in
+            -d) _DEVICE="\$2"; shift 2;;
+            -f) _FILESYSTEM="\$2"; shift 2;;
+            -l) _LOCATION="\$2"; shift 2;;
+            -p) _PROFILE="\$2"; shift 2;;
+            -r) _RETENTION="\$2"; shift 2;;
+            -t) _TAG="\$2"; shift 2;;
+
+            --device=*) _DEVICE="\${1#*=}"; shift 1;;
+            --filesystem=*) _FILESYSTEM="\${1#*=}"; shift 1;;
+            --location=*) _LOCATION="\${1#*=}"; shift 1;;
+            --profile=*) _PROFILE="\${1#*=}"; shift 1;;
+            --retention=*) _RETENTION="\${1#*=}"; shift 1;;
+            --tag=*) _TAG="\${1#*=}"; shift 1;;
+            
+            --device|--filesystem|--location|--profile|--retention|--tag)
+                echo "\$1 requires an argument" >&2; exit 1;;
+            
+            -*) echo "unknown option: \$1" >&2; exit 1;;
+            *) handle_argument "\$1"; shift 1;;
+        esac
+    done
+
+    if [ -z "\$_DEVICE" ]; then
+        echo "Device missing" >&2; exit 1;
+    fi
+
+    if [ -z "\$_FILESYSTEM" ]; then
+        echo "Filesystem missing" >&2; exit 1;
+    fi
+
+    if [ -z "\$_LOCATION" ]; then
+        echo "Location missing" >&2; exit 1;
+    fi
+
+    if [ -z "\$_PROFILE" ] && [ ! -z "\$_RETENTION" ] || [ ! -z "\$_TAG" ]; then
+        echo "Profile missing" >&2; exit 1;
+    fi
+
+    if [ -z "\$_PROFILE" ] && [ -z "\$_RETENTION" ]; then
+        echo "Retention missing" >&2; exit 1;
+    fi
+
+    if [ -z "\$_PROFILE" ] && [ -z "\$_TAG" ]; then
+        echo "Tag missing" >&2; exit 1;
+    fi
+
+    _WORKING_DIRECTORY="\$(mktemp -d)"
+
+    case "\$_PROFILE" in
+        hourly) _RETENTION="24"; _TAG="hourly"; shift 2;;
+        daily) _RETENTION="7"; _TAG="daily"; shift 2;;
+        weekly) _RETENTION="4"; _TAG="weekly"; shift 2;;
+        monthly) _RETENTION="3"; _TAG="monthly"; shift 2;;
+    esac
+
+    mount -o noatime,compress=zstd "\$_DEVICE" "\$_WORKING_DIRECTORY"
+
+    if \
+        btrfs subvolume snapshot -r "\$_FILESYSTEM" \\
+            "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$(date --utc +%Y%m%dT%H%M%SZ)+\$_TAG"
+    then
+        sudo -u caretakr \\
+            DISPLAY=:0 \\
+            DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
+            notify-send -u normal "Snapshot created" \\
+            "A snapshot of \$_FILESYSTEM subvolume was created"
+    else
+        sudo -u caretakr \\
+            DISPLAY=:0 \\
+            DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
+            notify-send -u critical "Snapshot failed" \\
+            "A snapshot of \$_FILESYSTEM subvolume was failed"
+    fi
+
+    _COUNT=1
+
+    for s in \$(find \$_WORKING_DIRECTORY/\$_LOCATION+snapshots/*+\$_TAG -maxdepth 0 -type d -printf "%f\n" | sort -nr); do
+        if [ "\$_COUNT" -gt "\$_RETENTION" ]; then
+            if
+                ! btrfs subvolume delete \\
+                    "\$_WORKING_DIRECTORY/\$_LOCATION+snapshots/\$s"
+            then
+                sudo -u caretakr \\
+                    DISPLAY=:0 \\
+                    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \\
+                    notify-send -u critical "Cannot delete snapshot" \\
+                    "A snapshot of \$_FILESYSTEM subvolume cannot be deleted"
+            fi
+        fi
+
+        _COUNT=\$((\$_COUNT+1))
+    done
+
+    umount "\$_WORKING_DIRECTORY"
+    rm -rf "\$_WORKING_DIRECTORY"
+
+}
+
+_main \$@
+EOF
+
+    arch-chroot /mnt chmod 0755 /usr/local/bin/backup
+
+    cat <<EOF > /mnt/etc/systemd/system/backup@.service
+[Unit]
+Description=%i backup of system
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /usr/local/bin/backup -d /dev/mapper/$_DATA_PARTITION -f / -l base -p %i
+
+[Install]
+Also=backup-base-%i.timer
+EOF
 
     _log "Setting bootloader..."
 
@@ -858,8 +1114,8 @@ EOF
 
     arch-chroot /mnt touch /root/.hushlogin
 
-    arch-chroot /mnt touch /home/$_USER_NAME/.hushlogin
-    arch-chroot /mnt chown $_USER_NAME:$_USER_NAME /home/$_USER_NAME/.hushlogin
+    arch-chroot /mnt touch /home/caretakr/.hushlogin
+    arch-chroot /mnt chown caretakr:caretakr /home/caretakr/.hushlogin
 
     arch-chroot /mnt setterm -cursor on >> /etc/issue
 
@@ -872,7 +1128,32 @@ EOF
     cat <<EOF > /mnt/etc/systemd/system/getty@tty1.service.d/override.conf
 [Service]
 ExecStart=
-ExecStart=-/usr/bin/agetty --skip-login --nonewline --noissue --autologin $_USER_NAME --noclear %I \$TERM
+ExecStart=-/usr/bin/agetty --skip-login --nonewline --noissue --autologin caretakr --noclear %I \$TERM
+EOF
+
+    _log "Setting Bluetooth sleep toggle..."
+
+    cat <<EOF > /mnt/etc/systemd/system/bluetooth-sleep-toggle.service
+[Unit]
+Description=Toggle Bluetooth before/after sleep
+Before=sleep.target
+Before=suspend.target
+Before=hybrid-sleep.target
+Before=suspend-then-hibernate.target
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+ExecStart=/usr/bin/bluetoothctl power off
+ExecStop=/usr/bin/bluetoothctl power on
+
+[Install]
+WantedBy=sleep.target
+WantedBy=suspend.target
+WantedBy=hybrid-sleep.target
+WantedBy=suspend-then-hibernate.target
 EOF
 
     _log "Setting services and timers..."
@@ -882,16 +1163,16 @@ EOF
     arch-chroot /mnt systemctl enable fstrim.timer
     arch-chroot /mnt systemctl enable iwd.service
     arch-chroot /mnt systemctl enable libvirtd.service
-    arch-chroot /mnt systemctl enable btrfs-snapshot-base-hourly.timer
-    arch-chroot /mnt systemctl enable btrfs-snapshot-base-daily.timer
-    arch-chroot /mnt systemctl enable btrfs-snapshot-root-hourly.timer
-    arch-chroot /mnt systemctl enable btrfs-snapshot-root-daily.timer
-    arch-chroot /mnt systemctl enable btrfs-snapshot-home-caretakr-hourly.timer
-    arch-chroot /mnt systemctl enable btrfs-snapshot-home-caretakr-daily.timer
-    arch-chroot /mnt systemctl enable btrfs-snapshot-var-log-hourly.timer
-    arch-chroot /mnt systemctl enable btrfs-snapshot-var-log-daily.timer
-    arch-chroot /mnt systemctl enable btrfs-snapshot-var-lib-libvirt-images-hourly.timer
-    arch-chroot /mnt systemctl enable btrfs-snapshot-var-lib-libvirt-images-daily.timer
+    arch-chroot /mnt systemctl enable snapshot-base-hourly.timer
+    arch-chroot /mnt systemctl enable snapshot-base-daily.timer
+    arch-chroot /mnt systemctl enable snapshot-root-hourly.timer
+    arch-chroot /mnt systemctl enable snapshot-root-daily.timer
+    arch-chroot /mnt systemctl enable snapshot-home-caretakr-hourly.timer
+    arch-chroot /mnt systemctl enable snapshot-home-caretakr-daily.timer
+    arch-chroot /mnt systemctl enable snapshot-var-log-hourly.timer
+    arch-chroot /mnt systemctl enable snapshot-var-log-daily.timer
+    arch-chroot /mnt systemctl enable snapshot-var-lib-libvirt-images-hourly.timer
+    arch-chroot /mnt systemctl enable snapshot-var-lib-libvirt-images-daily.timer
     arch-chroot /mnt systemctl enable systemd-networkd.service
     arch-chroot /mnt systemctl enable systemd-oomd.service
     arch-chroot /mnt systemctl enable systemd-resolved.service
@@ -899,8 +1180,8 @@ EOF
 
     _log "Running user installation..."
 
-    arch-chroot /mnt sudo -u $_USER_NAME sh -c \
-        "/home/$_USER_NAME/.config/tools/install.sh"
+    arch-chroot /mnt sudo -u caretakr sh -c \
+        "/home/caretakr/.config/tools/install.sh"
 
     _log "Cleanup..."
 
