@@ -123,8 +123,6 @@ _main() {
     && _line
 
   (
-    set -eu
-
     timedatectl set-ntp true \
       && timedatectl status
   )
@@ -133,8 +131,6 @@ _main() {
     && _line
 
   (
-    set -eu
-
     _MOUNTS="
       /mnt/boot \
     "
@@ -174,8 +170,6 @@ _main() {
     && _line
 
   (
-    set -eu
-
     sfdisk "/dev/$_STORAGE_DEVICE" <<EOF
   label: gpt
   device: /dev/$_STORAGE_DEVICE
@@ -195,8 +189,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     printf "$_DATA_PASSWORD" | cryptsetup luksFormat \
         "/dev/$_DATA_PARTITION" -d - \
       && printf "$_DATA_PASSWORD" | cryptsetup luksOpen "/dev/$_DATA_PARTITION" \
@@ -207,8 +199,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     mkfs.fat -F 32 "/dev/$_BOOT_PARTITION" \
       && mkswap "/dev/$_SWAP_PARTITION" \
       && mkfs.btrfs --checksum sha256 "/dev/mapper/$_DATA_PARTITION"
@@ -218,8 +208,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     mount /dev/mapper/$_DATA_PARTITION /mnt
 
     for s in $_SUBVOLUMES; do
@@ -234,8 +222,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     mount -o noatime,compress=zstd,subvol=base+live \
         "/dev/mapper/$_DATA_PARTITION" /mnt \
       && mkdir -p /mnt/boot \
@@ -256,8 +242,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     chmod 750 /mnt/root \
       && chmod 750 /mnt/home/caretakr
   )
@@ -266,8 +250,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     _PACMAN_PACKAGES=" \
       alsa-plugins \
       alsa-utils \
@@ -337,8 +319,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     genfstab -U /mnt >> /mnt/etc/fstab
   )
 
@@ -346,8 +326,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     arch-chroot /mnt ln -sf /usr/share/zoneinfo/America/Sao_Paulo \
         /etc/localtime \
       && arch-chroot /mnt hwclock --systohc
@@ -357,8 +335,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     arch-chroot /mnt sed -i '/^#en_US.UTF-8 UTF-8/s/^#//g' /etc/locale.gen \
       && arch-chroot /mnt sed -i '/^#pt_BR.UTF-8 UTF-8/s/^#//g' /etc/locale.gen \
       && arch-chroot /mnt locale-gen
@@ -368,8 +344,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     _log 'Writing /etc/locale.conf:' \
       && printf "\n"
 
@@ -395,8 +369,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     _KEYMAP='us'
 
     if \
@@ -418,8 +390,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     arch-chroot /mnt useradd -G wheel -m -s /bin/zsh caretakr \
       && arch-chroot /mnt chown caretakr:caretakr /home/caretakr \
       && arch-chroot /mnt chmod 0750 /home/caretakr
@@ -434,8 +404,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     _log 'Writing /etc/sudoers.d/20-admin:' \
       && printf "\n"
 
@@ -457,8 +425,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     _log 'Writing /etc/hostname:' \
       && printf "\n"
 
@@ -526,8 +492,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     _log 'Writing /etc/systemd/system/bluetooth-toggle.service:' \
       && printf "\n"
 
@@ -564,8 +528,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     mkdir -p /mnt/etc/systemd/system/user@.service.d
 
     _log 'Writing /etc/systemd/system/user@.service.d/override.conf:' \
@@ -609,8 +571,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     mkdir -p /mnt/etc/systemd/timesyncd.conf.d
 
     _log 'Writing /etc/systemd/timesyncd.conf.d/override.conf:' \
@@ -631,8 +591,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     ln -sf /run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf \
       && arch-chroot /mnt systemctl enable systemd-resolved.service
   )
@@ -641,8 +599,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     _log 'Writing /usr/local/bin/btrfs-snapshot:' \
       && printf "\n"
 
@@ -825,8 +781,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     arch-chroot /mnt systemctl enable fstrim.timer
     arch-chroot /mnt systemctl enable iwd.service
   )
@@ -835,8 +789,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     arch-chroot /mnt sed -i '/^MODULES/s/(.*)/(btrfs)/g' /etc/mkinitcpio.conf \
       && arch-chroot /mnt sed \
           -i '/^HOOKS/s/(.*)/(base systemd autodetect keyboard sd-vconsole modconf block sd-encrypt filesystems fsck)/g' \
@@ -849,8 +801,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     arch-chroot /mnt bootctl install
 
     printf "\n"
@@ -921,8 +871,6 @@ EOF
   printf "\n"
 
   (
-    set -eu
-
     arch-chroot /mnt sudo -u caretakr sh -c \
       "/home/caretakr/.scripts/install.sh"
   )
@@ -931,8 +879,6 @@ EOF
     && _line
 
   (
-    set -eu
-
     rm -f /mnt/etc/sudoers.d/99-install
   )
 }
