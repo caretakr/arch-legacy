@@ -222,7 +222,7 @@ EOF
     && _line
 
   (
-    mount -o noatime,compress=zstd,subvol=base+live \
+    mount -o noatime,compress=zstd,commit=60,subvol=base+live \
         "/dev/mapper/$_DATA_PARTITION" /mnt \
       && mkdir -p /mnt/boot \
       && mount "/dev/$_BOOT_PARTITION" /mnt/boot
