@@ -872,7 +872,7 @@ EOF
 
   (
     arch-chroot /mnt sudo -u caretakr sh -c \
-      "/home/caretakr/.scripts/install.sh"
+      "/home/caretakr/.tools/install.sh"
   )
 
   _step 'Cleanup...' \
