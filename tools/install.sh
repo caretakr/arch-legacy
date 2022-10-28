@@ -59,9 +59,6 @@ _main() {
   _input 'Hostname: ' \
     && read _HOSTNAME
 
-  _input 'Swap size (GB): ' \
-    && read _SWAP_SIZE
-
   _input 'Storage device: ' \
     && read _STORAGE_DEVICE
 
@@ -103,13 +100,13 @@ _main() {
     _DATA_PARTITION="${_STORAGE_DEVICE}3"
   fi
 
-  if [ ! -z "$_SWAP_SIZE" ]; then
-    _SWAP_SIZE="$((($_SWAP_SIZE*1024)*2048))"
-  else
-    _SWAP_SIZE="$(($(awk '( $1 == "MemTotal:" ) { printf "%3.0f", ($2/1024)*3 }' /proc/meminfo)*2048))"
-  fi
+  _BOOT_START="2048"
+  _BOOT_SIZE="$((1*1024*2048))"
 
-  _DATA_START="$(($_SWAP_SIZE+2099200))"
+  _SWAP_START="$(($_BOOT_START+$_BOOT_SIZE))"
+  _SWAP_SIZE="$((($(dmidecode -t 17 | grep "Size.*GB" | awk '{s+=$2} END {print s * 1024}')*3)*2048))"
+
+  _DATA_START="$(($_SWAP_START+$_SWAP_SIZE))"
 
   _SUBVOLUMES="
     base \
@@ -177,8 +174,8 @@ _main() {
   first-lba: 2048
   sector-size: 512
 
-  /dev/$_BOOT_PARTITION: start=2048, size=2097152, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
-  /dev/$_SWAP_PARTITION: start=2099200, size=$_SWAP_SIZE, type=0657FD6D-A4AB-43C4-84E5-0933C84B4F4F
+  /dev/$_BOOT_PARTITION: start=$_BOOT_START, size=$_BOOT_SIZE, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+  /dev/$_SWAP_PARTITION: start=$_SWAP_START, size=$_SWAP_SIZE, type=0657FD6D-A4AB-43C4-84E5-0933C84B4F4F
   /dev/$_DATA_PARTITION: start=$_DATA_START, size=, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
 EOF
 
