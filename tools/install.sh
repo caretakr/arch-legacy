@@ -198,7 +198,7 @@ EOF
   (
     mkfs.fat -F 32 "/dev/$_BOOT_PARTITION" \
       && mkswap "/dev/$_SWAP_PARTITION" \
-      && mkfs.btrfs --checksum sha256 "/dev/mapper/$_DATA_PARTITION"
+      && mkfs.btrfs "/dev/mapper/$_DATA_PARTITION"
   )
 
   _step 'Mounting partitions...' \
