@@ -156,10 +156,10 @@ _main() {
       fi
     done
 
-    if [ -b "/dev/mapper/$_DATA_PARTITION" ]; then
+    if [ -b /dev/mapper/root ]; then
       _log 'Closing dangled encrypted device...'
 
-      cryptsetup close "$_DATA_PARTITION"
+      cryptsetup close root
     fi
   )
 
@@ -188,8 +188,8 @@ EOF
   (
     printf "$_DATA_PASSWORD" | cryptsetup luksFormat \
         "/dev/$_DATA_PARTITION" -d - \
-      && printf "$_DATA_PASSWORD" | cryptsetup luksOpen "/dev/$_DATA_PARTITION" \
-          "$_DATA_PARTITION" -d -
+      && printf "$_DATA_PASSWORD" | cryptsetup luksOpen \
+          "/dev/$_DATA_PARTITION" root -d -
   )
 
   _step 'Formatting partitions...' \
@@ -198,14 +198,14 @@ EOF
   (
     mkfs.fat -F 32 "/dev/$_BOOT_PARTITION" \
       && mkswap "/dev/$_SWAP_PARTITION" \
-      && mkfs.btrfs "/dev/mapper/$_DATA_PARTITION"
+      && mkfs.btrfs /dev/mapper/root
   )
 
   _step 'Mounting partitions...' \
     && _line
 
   (
-    mount /dev/mapper/$_DATA_PARTITION /mnt
+    mount /dev/mapper/root /mnt
 
     for s in $_SUBVOLUMES; do
       mkdir -p "/mnt/$s+snapshots" \
@@ -219,8 +219,8 @@ EOF
     && _line
 
   (
-    mount -o noatime,compress=zstd,commit=60,subvol=base+live \
-        "/dev/mapper/$_DATA_PARTITION" /mnt \
+    mount -o rw,noatime,compress=zstd:3,ssd,space_cache=v2,subvol=base+live \
+        /dev/mapper/root /mnt \
       && mkdir -p /mnt/boot \
       && mount "/dev/$_BOOT_PARTITION" /mnt/boot
 
@@ -230,8 +230,9 @@ EOF
       fi
 
       mkdir -p "/mnt/$s" \
-        && mount -o "rw,noatime,compress=zstd:3,space_cache=v2,subvol=$s+live" \
-          /dev/mapper/$_DATA_PARTITION "/mnt/$s"
+        && mount -o \
+            "rw,noatime,compress=zstd:3,ssd,space_cache=v2,subvol=$s+live" \
+            /dev/mapper/root "/mnt/$s"
     done
   )
 
@@ -316,7 +317,7 @@ EOF
     && _line
 
   (
-    genfstab -U /mnt >> /mnt/etc/fstab
+    genfstab -U /mnt | sed -e 's/subvolid=[0-9]\+,//g' >> /mnt/etc/fstab
   )
 
   _step 'Setting timezone...' \
@@ -713,7 +714,7 @@ EOF
           && printf "\n"
 
         cat <<EOF | arch-chroot /mnt tee "/etc/btrfs/snapshots/$(echo $s | sed "s/\//-/g")+$p.conf"
-DEVICE=/dev/mapper/$_DATA_PARTITION
+DEVICE=/dev/mapper/root
 SUBVOLUME=$s
 RETENTION=$_RETENTION
 TAG=$p
@@ -818,7 +819,7 @@ EOF
 title Arch
 linux /vmlinuz-linux
 initrd /initramfs-linux.img
-options rd.luks.name=$(blkid -s UUID -o value /dev/$_DATA_PARTITION)=$_DATA_PARTITION rd.luks.options=discard root=UUID=$(blkid -s UUID -o value /dev/mapper/$_DATA_PARTITION) rootflags=subvol=base+live rw quiet splash loglevel=3 rd.systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=0 i915.enable_psr=0 i915.enable_fbc=1
+options rd.luks.name=$(blkid -s UUID -o value /dev/$_DATA_PARTITION)=root rd.luks.options=discard root=UUID=$(blkid -s UUID -o value /dev/mapper/root) rootflags=subvol=base+live rw quiet splash loglevel=3 rd.systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=0 i915.enable_psr=0 i915.enable_fbc=1
 EOF
 
     printf "\n"
@@ -830,7 +831,7 @@ EOF
 title Arch (fallback)
 linux /vmlinuz-linux
 initrd /initramfs-linux-fallback.img
-options rd.luks.name=$(blkid -s UUID -o value /dev/$_DATA_PARTITION)=$_DATA_PARTITION rd.luks.options=discard root=UUID=$(blkid -s UUID -o value /dev/mapper/$_DATA_PARTITION) rootflags=subvol=base+live rw quiet splash loglevel=3 rd.systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=0 i915.enable_psr=0 i915.enable_fbc=1
+options rd.luks.name=$(blkid -s UUID -o value /dev/$_DATA_PARTITION)=root rd.luks.options=discard root=UUID=$(blkid -s UUID -o value /dev/mapper/root) rootflags=subvol=base+live rw quiet splash loglevel=3 rd.systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=0 i915.enable_psr=0 i915.enable_fbc=1
 EOF
 
     printf "\n"
