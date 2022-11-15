@@ -252,7 +252,6 @@ EOF
       alsa-plugins \
       alsa-utils \
       base \
-      base-devel \
       bluez \
       bluez-utils \
       brightnessctl \
