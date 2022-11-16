@@ -696,54 +696,37 @@ EOF
 
     printf "\n"
 
-    arch-chroot /mnt chmod 0755 /usr/local/bin/btrfs-snapshot \
-      && mkdir -p /mnt/etc/btrfs/snapshots
+    arch-chroot /mnt chmod 0755 /usr/local/bin/btrfs-snapshot
 
-    for s in $_SUBVOLUMES; do
-      for p in \
-        hourly \
-        daily \
-      ; do
-        case "$p" in
-          hourly) _RETENTION=24 ;;
-          daily) _RETENTION=7 ;;
-        esac
+    for p in \
+      hourly \
+      daily \
+    ; do
+      case "$p" in
+        hourly) 
+          _RETENTION=24
+          _TIMER='*-*-* *:00:00'
 
-        _log "Writing /etc/btrfs/snapshots/$(echo $s | sed "s/\//-/g")+$p.conf:" \
+          ;;
+        daily)
+          _RETENTION=90
+          _TIMER='*-*-* 21:00:00'
+          
+          ;;
+      esac
+
+      _log 'Writing /etc/systemd/system/btrfs-snapshot-$p@.service:' \
           && printf "\n"
 
-        cat <<EOF | arch-chroot /mnt tee "/etc/btrfs/snapshots/$(echo $s | sed "s/\//-/g")+$p.conf"
-DEVICE=/dev/mapper/root
-SUBVOLUME=$s
-RETENTION=$_RETENTION
-TAG=$p
-EOF
-
-        printf "\n"
-      done
-    done
-
-    _log 'Writing /etc/systemd/system/btrfs-snapshot@.service:' \
-      && printf "\n"
-
-    cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/btrfs-snapshot@.service
+      cat <<EOF | arch-chroot /mnt tee "/etc/systemd/system/btrfs-snapshot-$p@.service"
 [Unit]
-Description=BTRFS snapshot of %i subvolume
+Description=$p BTRFS snapshot of %i subvolume
 
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/btrfs/snapshots/%i.conf
-ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d $DEVICE -s $SUBVOLUME -r $RETENTION -t $TAG
+EnvironmentFile=/etc/btrfs/snapshots/%i/$p.conf
+ExecStart=/bin/sh /usr/local/bin/btrfs-snapshot -d \$DEVICE -s \$SUBVOLUME -r \$RETENTION -t \$TAG
 EOF
-
-    for p in \
-        hourly \
-        daily \
-    ; do
-      case "$p" in
-        hourly) _TIMER='* *-*-* *:00:00' ;;
-        daily) _TIMER='* *-*-* 00:00:00' ;;
-      esac
 
       printf "\n"
 
@@ -757,7 +740,7 @@ Description=$p BTRFS snapshot of %i subvolume
 [Timer]
 OnCalendar=$_TIMER
 Persistent=true
-Unit=btrfs-snapshot@%i+$p.service
+Unit=btrfs-snapshot-$p@%i.service
 
 [Install]
 WantedBy=timers.target
@@ -766,6 +749,21 @@ EOF
       printf "\n"
 
       for s in $_SUBVOLUMES; do
+        arch-chroot /mnt mkdir \
+            -p "/etc/btrfs/snapshots/$(echo $s | sed "s/\//-/g")"
+
+        _log "Writing /etc/btrfs/snapshots/$(echo $s | sed "s/\//-/g")/$p.conf:" \
+          && printf "\n"
+
+        cat <<EOF | arch-chroot /mnt tee "/etc/btrfs/snapshots/$(echo $s | sed "s/\//-/g")/$p.conf"
+DEVICE=/dev/mapper/root
+SUBVOLUME=$s
+RETENTION=$_RETENTION
+TAG=$p
+EOF
+
+        printf "\n"
+
         arch-chroot /mnt systemctl enable \
             "btrfs-snapshot-$p@$(echo $s | sed "s/\//-/g").timer"
       done
