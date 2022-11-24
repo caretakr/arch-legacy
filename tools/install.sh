@@ -222,7 +222,8 @@ EOF
     mount -o rw,noatime,compress=zstd:3,ssd,space_cache=v2,subvol=base+live \
         /dev/mapper/root /mnt \
       && mkdir -p /mnt/boot \
-      && mount "/dev/$_BOOT_PARTITION" /mnt/boot
+      && mount -o rw,noatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro \
+          "/dev/$_BOOT_PARTITION" /mnt/boot
 
     for s in $_SUBVOLUMES; do
       if [ "$s" = 'base' ]; then
@@ -270,7 +271,6 @@ EOF
       gstreamer-vaapi \
       intel-ucode \
       iwd \
-      libgcrypt \
       linux \
       linux-firmware \
       man \
@@ -436,7 +436,7 @@ EOF
 
     cat <<EOF | arch-chroot /mnt tee /etc/hosts
 127.0.0.1 localhost
-127.0.1.1 $_HOSTNAME.localdomain $_HOSTNAME
+127.0.1.1 $_HOSTNAME.home.arpa. $_HOSTNAME
 
 ::1 localhost
 EOF
