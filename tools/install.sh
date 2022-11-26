@@ -90,15 +90,15 @@ _main() {
     _log "User password mismatch: exiting..."; exit
   fi
 
+  _STORAGE_PREFIX="$_STORAGE_DEVICE"
+
   if [[ "$_STORAGE_DEVICE" = nvme* ]]; then
-    _BOOT_PARTITION="${_STORAGE_DEVICE}p1"
-    _SWAP_PARTITION="${_STORAGE_DEVICE}p2"
-    _DATA_PARTITION="${_STORAGE_DEVICE}p3"
-  else
-    _BOOT_PARTITION="${_STORAGE_DEVICE}1"
-    _SWAP_PARTITION="${_STORAGE_DEVICE}2"
-    _DATA_PARTITION="${_STORAGE_DEVICE}3"
+    _STORAGE_PREFIX="${_STORAGE_PREFIX}p"
   fi
+
+  _BOOT_PARTITION="${_STORAGE_PREFIX}1"
+  _SWAP_PARTITION="${_STORAGE_PREFIX}2"
+  _DATA_PARTITION="${_STORAGE_PREFIX}3"
 
   _BOOT_START="2048"
   _BOOT_SIZE="$((1*1024*2048))"
@@ -110,10 +110,9 @@ _main() {
 
   _SUBVOLUMES="
     base \
-    root \
     home/caretakr \
-    var/log \
-    var/lib/libvirt/images
+    root \
+    var \
   "
 
   _step 'Updating system clock...' \
@@ -139,13 +138,13 @@ _main() {
 
       _MOUNTS="
         $_MOUNTS \
-        /mnt/$s
+        /mnt/$s \
       "
     done
 
     _MOUNTS="
       $_MOUNTS \
-      /mnt
+      /mnt \
     "
 
     for m in $_MOUNTS; do
@@ -333,7 +332,8 @@ EOF
 
   (
     arch-chroot /mnt sed -i '/^#en_US.UTF-8 UTF-8/s/^#//g' /etc/locale.gen \
-      && arch-chroot /mnt sed -i '/^#pt_BR.UTF-8 UTF-8/s/^#//g' /etc/locale.gen \
+      && arch-chroot /mnt sed -i '/^#pt_BR.UTF-8 UTF-8/s/^#//g' \
+          /etc/locale.gen \
       && arch-chroot /mnt locale-gen
   )
 
@@ -575,8 +575,8 @@ EOF
 
     cat <<EOF | arch-chroot /mnt tee /etc/systemd/timesyncd.conf.d/override.conf
 [Time]
-NTP=pool.ntp.org time.nist.gov pool.ntp.br
-FallbackNTP=time.google.com time.cloudflare.com time.facebook.com
+NTP=
+FallbackNTP=pool.ntp.org time.nist.gov time.google.com
 EOF
 
     printf "\n"
@@ -866,8 +866,7 @@ EOF
   printf "\n"
 
   (
-    arch-chroot /mnt sudo -u caretakr sh -c \
-      "/home/caretakr/.tools/install.sh"
+    arch-chroot /mnt sudo -u caretakr sh -c "/home/caretakr/.tools/install.sh"
   )
 
   _step 'Cleanup...' \
