@@ -280,6 +280,7 @@ EOF
       pipewire-pulse \
       sof-firmware \
       sudo \
+      systemd-resolvconf \
       udisks2 \
       vulkan-intel \
       wireplumber \
@@ -588,7 +589,7 @@ EOF
     && _line
 
   (
-    ln -sf /run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf \
+    ln -sf /run/systemd/resolve/resolv.conf /mnt/etc/resolv.conf \
       && arch-chroot /mnt systemctl enable systemd-resolved.service
   )
 
